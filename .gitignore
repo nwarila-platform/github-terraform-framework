@@ -1,0 +1,22 @@
+# Ignore everything by default.
+**
+
+# Keep core repo files.
+!/.gitignore
+!/DESIGN.md
+!/LICENSE
+!/README.md
+
+# Keep the Terraform project.
+!/terraform/
+!/terraform/*.tf
+!/terraform/.terraform.lock.hcl
+!/terraform/repos/
+!/terraform/repos/public/
+!/terraform/repos/public/.gitkeep
+!/terraform/repos/public/*.yml
+!/terraform/repos/public/*.yaml
+!/terraform/repos/private/
+!/terraform/repos/private/.gitkeep
+!/terraform/repos/private/*.yml
+!/terraform/repos/private/*.yaml
