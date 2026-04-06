@@ -31,6 +31,7 @@ locals {
     has_wiki                                = false
     is_template                             = false
     allow_auto_merge                        = true
+    allow_forking                           = false
     allow_merge_commit                      = false
     allow_rebase_merge                      = false
     allow_squash_merge                      = true
@@ -177,7 +178,10 @@ locals {
         local.repo_setting_defaults.allow_auto_merge
       )
 
-      allow_forking = try(repository.allow_forking, null)
+      allow_forking = coalesce(
+        try(repository.allow_forking, null),
+        local.repo_setting_defaults.allow_forking
+      )
 
       allow_merge_commit = coalesce(
         try(repository.allow_merge_commit, null),
