@@ -1,2 +1,2 @@
 # github-terraform-framework
-Terraform framework for managing GitHub repositories, rulesets, security defaults, and shared account-level governance as code.
+Terraform framework for managing GitHub repositories, rulesets, security defaults, and shared owner-level governance as code.
