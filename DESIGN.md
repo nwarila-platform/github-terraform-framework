@@ -385,12 +385,12 @@ Shows an "Update branch" button on PRs when they're behind the base branch.
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `true` for public repos, `false` for private |
+| **Default** | `false` |
 | **Governance** | [Open Source Licensing Principles](https://opensource.org/osd) |
 
-Controls whether the repository can be forked (for private/internal org repos — public repos are always forkable per GitHub's terms of service).
+Controls whether the repository can be forked (for private/internal org repos - public repos are always forkable per GitHub's terms of service).
 
-**Recommendation**: Dynamic based on visibility. Public repos are forkable by definition (GitHub enforces this). For private repos, forking is disabled to prevent unauthorized copies.
+**Recommendation**: Default this to `false` conceptually, but do not enforce it from the shared framework resource. Public repos are forkable by definition, and personal-account repositories cannot reliably update this field through the same API path as organization repositories. If an owner needs strict forking control, handle it in an owner-specific layer.
 
 ### 4.11 `web_commit_signoff_required`
 
@@ -1049,3 +1049,4 @@ All provider versions are **exact-pinned** (e.g., `version = "6.10.2"`, not `ver
 **Rationale**: Exact pinning prevents supply chain attacks where a compromised provider version is automatically pulled during `terraform init`. Range constraints (`~>`, `>=`) allow automatic upgrades that could introduce malicious code. Exact pins require explicit, reviewable version bumps — each upgrade is a deliberate, auditable decision.
 
 This aligns with [SLSA Level 3](https://slsa.dev/spec/v1.0/levels#build-l3) requirements for hermetic, reproducible builds and the OpenSSF Scorecard's [Pinned-Dependencies check](https://github.com/ossf/scorecard/blob/main/docs/checks.md#pinned-dependencies).
+
