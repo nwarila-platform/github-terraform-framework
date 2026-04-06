@@ -28,11 +28,11 @@ resource "github_repository" "repo" {
   is_template     = each.value.is_template
 
   # Merge Behavior
-  allow_merge_commit          = each.value.allow_merge_commit
-  allow_squash_merge          = each.value.allow_squash_merge
-  allow_rebase_merge          = each.value.allow_rebase_merge
-  allow_auto_merge            = each.value.allow_auto_merge
-  # allow_forking is org-only; set via github_repository_setting or per-repo override
+  allow_merge_commit = each.value.allow_merge_commit
+  allow_squash_merge = each.value.allow_squash_merge
+  allow_rebase_merge = each.value.allow_rebase_merge
+  allow_auto_merge   = each.value.allow_auto_merge
+  # allow_forking is owner-specific and intentionally not managed in this shared resource.
   # allow_forking = each.value.allow_forking
   allow_update_branch         = each.value.allow_update_branch
   squash_merge_commit_title   = each.value.squash_merge_commit_title
@@ -132,7 +132,7 @@ resource "github_repository" "repo" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [auto_init, license_template]
+    ignore_changes  = [auto_init, license_template, allow_forking]
   }
 }
 
