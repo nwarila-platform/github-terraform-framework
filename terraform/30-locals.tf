@@ -25,7 +25,7 @@ locals {
   repos_from_yaml = merge({}, local.repo_yaml_objects...)
 
   repo_setting_defaults = {
-    has_discussions                         = false
+    has_discussions                         = true
     has_issues                              = true
     has_projects                            = false
     has_wiki                                = false
@@ -50,8 +50,8 @@ locals {
 
   repo_security_defaults = {
     public = {
+      # Enable the public-repo features GitHub reliably exposes across owner types.
       advanced_security                     = null
-      # Only enable the public-repo features this account/API reliably exposes.
       code_security                         = null
       secret_scanning                       = true
       secret_scanning_push_protection       = true
@@ -59,9 +59,10 @@ locals {
       secret_scanning_non_provider_patterns = null
     }
     private = {
-      # Personal-account private repos do not consistently expose the full
-      # security_and_analysis feature set. Leave these unset by default and
-      # opt in per repository when the backing GitHub entitlement supports it.
+      # Private repositories do not consistently expose the full
+      # security_and_analysis feature set across plans and owner types.
+      # Leave these unset by default and opt in per repository when the
+      # backing GitHub entitlement supports it.
       advanced_security                     = null
       code_security                         = null
       secret_scanning                       = null
@@ -295,7 +296,7 @@ locals {
             local.repo_security_defaults,
             coalesce(try(repository.visibility, null), "private"),
             local.repo_security_defaults.private
-          ) : merge(
+            ) : merge(
             lookup(
               local.repo_security_defaults,
               coalesce(try(repository.visibility, null), "private"),
@@ -304,12 +305,12 @@ locals {
             repository.security_and_analysis
           )
         ) : setting if setting != null
-      ]) == 0 ? null : (
+        ]) == 0 ? null : (
         try(repository.security_and_analysis, null) == null ? lookup(
           local.repo_security_defaults,
           coalesce(try(repository.visibility, null), "private"),
           local.repo_security_defaults.private
-        ) : merge(
+          ) : merge(
           lookup(
             local.repo_security_defaults,
             coalesce(try(repository.visibility, null), "private"),

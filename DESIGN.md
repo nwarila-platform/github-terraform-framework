@@ -1,6 +1,6 @@
 # Repository Configuration Design Document
 
-> **Scope**: Every GitHub repository setting managed by the NWarila Terraform framework, with rationale grounded in industry standards, GitHub's own recommendations, and CI/CD best practices.
+> **Scope**: Every GitHub repository setting managed by this shared GitHub Terraform framework, with rationale grounded in industry standards, GitHub's own recommendations, and CI/CD best practices.
 >
 > **Audience**: Current and future maintainers who need to understand *why* every default was chosen, not just *what* it is.
 >
@@ -91,9 +91,9 @@
 
 This framework manages GitHub repositories as **code** — every setting is declarative, version-controlled, and auditable. The design priorities, in order:
 
-1. **Security-first**: Every default leans toward the most restrictive option that doesn't impede a solo maintainer's workflow. A portfolio GitHub account is a living security audit — employers *will* inspect your branch protection, merge policies, and scanning settings.
+1. **Security-first**: Every default leans toward the most restrictive option that doesn't impede normal maintainer workflows. Public repositories are a living security audit, whether they belong to an individual or an organization.
 2. **Clean git history**: Squash-only merges, linear history, and signed commits produce a timeline that tells a story, not a tangle.
-3. **Minimal surface area**: Features that aren't actively used (Wiki, Projects, Discussions) are disabled. An empty Wiki tab signals neglect; a missing tab signals intentionality.
+3. **Minimal surface area**: Features that are rarely worth the maintenance burden by default (Wiki, Projects) are disabled, while Discussions is enabled by default because both owner models use it as the standard support entry point.
 4. **Convention over configuration**: Repos should only specify what makes them *different*. Everything else inherits from battle-tested defaults.
 
 **Governing References**:
@@ -132,7 +132,7 @@ The repository name is the map key in each `.yml` file. Names follow kebab-case 
 | **Default** | `null` |
 | **Governance** | GitHub Community Standards |
 
-The description appears in search results, profile pages, GitHub Explore, and social cards (Open Graph). For a portfolio account, **every public repository must have a description**. An empty description on a public repo looks unfinished.
+The description appears in search results, profile pages, GitHub Explore, and social cards (Open Graph). For any public repository, **a description should be treated as required**. An empty description on a public repo looks unfinished.
 
 **Recommendation**: Required for all public repos. Should be a single sentence (under 350 characters) that answers "what does this do and why would someone care?" Avoid marketing language; be specific and technical.
 
@@ -210,12 +210,12 @@ Issues are GitHub's built-in bug tracker and feature request system. GitHub's Co
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `false` |
+| **Default** | `true` |
 | **Governance** | [GitHub Docs: Discussions](https://docs.github.com/en/discussions) |
 
 GitHub Discussions is a forum-style feature for Q&A and open-ended conversation. It's most valuable for projects with active communities.
 
-**Recommendation**: `false` for all repos. For a personal portfolio account without a community, empty Discussions tabs look abandoned. Issues cover the same ground for bug reports and feature requests. Enable only if a repo genuinely attracts community engagement.
+**Recommendation**: `true` by default. This framework standardizes on Discussions as the primary support channel for questions and open-ended conversation, while Issues remain reserved for actionable work. Repositories that want a different posture should override `has_discussions` explicitly in their YAML definition.
 
 ### 3.3 `has_projects`
 
@@ -402,7 +402,7 @@ Controls whether the repository can be forked (for private/internal org repos �
 
 Requires contributors making commits via the GitHub web interface to sign off on their commits, adding a `Signed-off-by` trailer.
 
-**Recommendation**: `true`. The DCO sign-off is a lightweight contributor agreement used by the Linux kernel, CNCF projects, and many enterprise open-source projects. It certifies the contributor has the right to submit the code. For a portfolio account, this demonstrates familiarity with enterprise open-source governance. Combined with `required_signatures` in rulesets, this creates a complete chain of authorship verification.
+**Recommendation**: `true`. The DCO sign-off is a lightweight contributor agreement used by the Linux kernel, CNCF projects, and many enterprise open-source projects. It certifies the contributor has the right to submit the code. Combined with `required_signatures` in rulesets, this creates a complete chain of authorship verification.
 
 ---
 
@@ -436,7 +436,7 @@ The license applied to the repository on creation.
 - Simple and well-understood by legal teams
 - Required by OpenSSF Scorecard's License check
 
-For a portfolio account, MIT signals openness and professionalism. The `lifecycle { ignore_changes = [license_template] }` block prevents Terraform from fighting with manual license changes.
+MIT is a strong default for broadly reusable public repositories because it signals openness without adding legal complexity. The `lifecycle { ignore_changes = [license_template] }` block prevents Terraform from fighting with manual license changes.
 
 ### 5.3 `gitignore_template`
 
@@ -503,7 +503,7 @@ All secret scanning features are enabled **universally** regardless of repositor
 
 Enables Dependabot vulnerability alerts for known CVEs in dependencies.
 
-**Recommendation**: `true` for all repos. Dependabot alerts are free, automatic, and essential. Ignoring known vulnerabilities in dependencies is the #6 item on the [OWASP Top 10 (A06:2021)](https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/). For a portfolio account, having vulnerability alerts enabled demonstrates security awareness.
+**Recommendation**: `true` for all repos. Dependabot alerts are free, automatic, and essential. Ignoring known vulnerabilities in dependencies is the #6 item on the [OWASP Top 10 (A06:2021)](https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/). Enabling them is one of the clearest low-friction security defaults a repository can have.
 
 ### 7.2 `dependabot_security_updates`
 
@@ -725,7 +725,7 @@ Requires all commits on the default branch to have verified GPG, SSH, or S/MIME 
 - **Tamper detection**: Signed commits cannot be modified without invalidating the signature
 - **Supply chain security**: Part of SLSA Level 2+ requirements
 
-For a portfolio account, signed commits display a green "Verified" badge on every commit — a strong signal of security awareness to employers.
+Signed commits display a green "Verified" badge and provide a visible, low-friction signal that the repository treats authorship integrity seriously.
 
 #### 10.2.6 `update`
 
@@ -777,7 +777,7 @@ Automatically dismisses existing approvals when new commits are pushed to the PR
 
 Requires at least one approving review from a designated code owner (defined in `.github/CODEOWNERS`).
 
-**Recommendation**: `true`. Even for a solo developer, a CODEOWNERS file (mapping `* @NWarila`) formalizes ownership and creates an audit trail. For a portfolio account, it demonstrates understanding of enterprise code ownership patterns. If the repo has no CODEOWNERS file, this rule is effectively a no-op (any reviewer satisfies it).
+**Recommendation**: `true` when a repository actually has maintainers to assign. A CODEOWNERS file formalizes ownership and creates an audit trail, but the concrete owners should be supplied per owner context rather than hard-coded into shared framework guidance.
 
 #### 10.3.4 `require_last_push_approval`
 
