@@ -70,10 +70,13 @@ jobs:
             exit 0
           fi
 
-          TOTAL=$(grep -c '"@level":"info".*"type":"test_run"' "$JSON_FILE" || echo "0")
-          PASSED=$(grep -c '"status":"pass".*"type":"test_run"' "$JSON_FILE" || echo "0")
-          FAILED=$(grep -c '"status":"fail".*"type":"test_run"' "$JSON_FILE" || echo "0")
-          SKIPPED=$(grep -c '"status":"skip".*"type":"test_run"' "$JSON_FILE" || echo "0")
+          PASSED=$(grep -cE '^\s+run ".*"\.\.\. pass$' "$HUMAN_FILE" || true)
+          FAILED=$(grep -cE '^\s+run ".*"\.\.\. fail$' "$HUMAN_FILE" || true)
+          SKIPPED=$(grep -cE '^\s+run ".*"\.\.\. skip$' "$HUMAN_FILE" || true)
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+          SKIPPED=${SKIPPED:-0}
+          TOTAL=$((PASSED + FAILED + SKIPPED))
 
           if [ "$FAILED" -gt 0 ]; then
             RESULT="failure"

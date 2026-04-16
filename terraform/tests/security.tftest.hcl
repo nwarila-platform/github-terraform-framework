@@ -23,6 +23,14 @@ variables {
   github_auth_mode       = "token"
   github_token           = "fake-token-for-unit-tests"
   github_app_auth        = null
+
+  # Default to no baseline so check.security_baseline_preview doesn't fire
+  # on runs that don't explicitly override these variables.
+  security_baseline = {
+    public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+  }
 }
 
 #region ------ [ Strict mode, no gap — must pass ] ------------------------------------------- #
@@ -243,6 +251,12 @@ run "strict_mode_reports_gaps_across_multiple_visibilities" {
     }
   }
 
+  # The check block fires as expected in compatibility mode — terraform test
+  # treats check-block warnings as run failures unless we declare them.
+  expect_failures = [
+    check.security_baseline_preview,
+  ]
+
   # Expect 4 gaps: 2 on public (advanced_security, secret_scanning) and
   # 2 on private (advanced_security, code_security).
   assert {
@@ -318,7 +332,7 @@ run "no_baseline_no_yaml_collapses_security_to_null" {
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].security_and_analysis == null
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis == null
     error_message = "no baseline + no explicit YAML must collapse security_and_analysis to null"
   }
 }
@@ -390,12 +404,12 @@ run "baseline_feature_enabled_when_capability_matches" {
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].security_and_analysis.secret_scanning == true
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis.secret_scanning == true
     error_message = "baseline demanded secret_scanning=true and capability supports it, expected normalized value to be true"
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].security_and_analysis.advanced_security == true
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis.advanced_security == true
     error_message = "baseline demanded advanced_security=true and capability supports it, expected normalized value to be true"
   }
 }

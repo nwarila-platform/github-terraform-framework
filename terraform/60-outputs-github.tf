@@ -4,16 +4,25 @@ output "locals_debug" {
   value = {
     all_repositories = local.all_repositories
     branch_rulesets  = local.branch_rulesets
-    # add more locals here as you create them
   }
 }
 
+output "all_repositories" {
+  description = "Computed repository map. Non-sensitive so terraform test assertions can inspect normalized values."
+  value       = local.all_repositories
+}
+
+output "branch_rulesets" {
+  description = "Computed branch rulesets map. Non-sensitive so terraform test assertions can inspect ruleset counts and values."
+  value       = local.branch_rulesets
+}
+
 output "validation_errors" {
-  description = "Aggregated framework validation errors. Empty when configuration is valid. Exposed so terraform test run blocks can assert on len() == 0 in positive cases."
-  value       = local.global_validation_errors
+  description = "Aggregated framework validation errors. Empty when configuration is valid."
+  value       = nonsensitive(local.global_validation_errors)
 }
 
 output "security_capability_gap_preview" {
-  description = "List of capability-gap preview messages. Populated whenever var.security_baseline demands a feature not supported by var.github_security_capabilities. In strict mode these also appear in validation_errors. In compatibility mode they surface only via check.security_baseline_preview."
+  description = "List of capability-gap preview messages."
   value       = local.security_capability_gap_preview
 }
