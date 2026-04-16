@@ -1,0 +1,4 @@
+good-archived-repo:
+  description: "archived repo — framework must skip branch, ruleset, file, and env management"
+  visibility: private
+  archived: true

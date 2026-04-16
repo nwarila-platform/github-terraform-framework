@@ -1,8 +1,29 @@
 #% ========================================================================================== %#
-#% = File: resources.tf                                                                       %#
+#% = File: 41-resources-github.tf                                                             %#
 #% ------------------------------------------------------------------------------------------ %#
 #% Resources driven by locals computed in locals.tf                                            %#
 #% ========================================================================================== %#
+
+# Global validation gate. A single precondition evaluates the aggregated
+# local.global_validation_errors list. If any errors are present, plan fails
+# with one joined message. This node handles invariants that span the whole
+# configuration (duplicate repo keys, unknown nested YAML keys, unsupported
+# push rulesets, auth config, strict-mode capability gaps). Per-resource
+# invariants stay as lifecycle.precondition blocks on their own resources
+# so error messages point at specific addresses.
+#
+# The input is intentionally static so this node never shows "will be
+# replaced" in plan output when the error list changes.
+resource "terraform_data" "framework_validation" {
+  input = "framework-validation-gate"
+
+  lifecycle {
+    precondition {
+      condition     = length(local.global_validation_errors) == 0
+      error_message = "Framework validation failed:\n\n${join("\n\n", local.global_validation_errors)}"
+    }
+  }
+}
 
 resource "github_repository" "repo" {
   for_each = local.all_repositories
@@ -28,12 +49,10 @@ resource "github_repository" "repo" {
   is_template     = each.value.is_template
 
   # Merge Behavior
-  allow_merge_commit = each.value.allow_merge_commit
-  allow_squash_merge = each.value.allow_squash_merge
-  allow_rebase_merge = each.value.allow_rebase_merge
-  allow_auto_merge   = each.value.allow_auto_merge
-  # allow_forking is owner-specific and intentionally not managed in this shared resource.
-  # allow_forking = each.value.allow_forking
+  allow_merge_commit          = each.value.allow_merge_commit
+  allow_squash_merge          = each.value.allow_squash_merge
+  allow_rebase_merge          = each.value.allow_rebase_merge
+  allow_auto_merge            = each.value.allow_auto_merge
   allow_update_branch         = each.value.allow_update_branch
   squash_merge_commit_title   = each.value.squash_merge_commit_title
   squash_merge_commit_message = each.value.squash_merge_commit_message
@@ -55,9 +74,7 @@ resource "github_repository" "repo" {
   topics = each.value.topics
 
   # Dependabot / Vulnerability Alerts
-  vulnerability_alerts                    = each.value.vulnerability_alerts
-  ignore_vulnerability_alerts_during_read = each.value.ignore_vulnerability_alerts_during_read
-
+  vulnerability_alerts = each.value.vulnerability_alerts
   dynamic "pages" {
     for_each = each.value.pages == null ? [] : [each.value.pages]
     content {
@@ -130,10 +147,26 @@ resource "github_repository" "repo" {
     }
   }
 
+  # Global validation (duplicate keys, unknown nested keys, push rulesets,
+  # auth config, capability gaps) is enforced upstream by
+  # terraform_data.framework_validation. Per-resource preconditions here
+  # check repo-scoped invariants so their errors point at the specific
+  # github_repository.repo[<name>] address.
   lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [auto_init, license_template, allow_forking]
+    ignore_changes = [auto_init, license_template]
+
+    precondition {
+      condition     = contains(["public", "private", "internal"], each.value.visibility)
+      error_message = "Repository '${each.key}' has invalid visibility '${each.value.visibility}'. Must be one of: public, private, internal."
+    }
+
+    precondition {
+      condition     = each.value.visibility != "public" || (each.value.description != null && each.value.description != "")
+      error_message = "Public repository '${each.key}' must define a non-empty description."
+    }
   }
+
+  depends_on = [terraform_data.framework_validation]
 }
 
 resource "github_repository_dependabot_security_updates" "repo" {
@@ -159,20 +192,23 @@ resource "github_branch_default" "default" {
   depends_on = [github_repository.repo]
 }
 
+resource "time_sleep" "after_branch_default" {
+  # GitHub's API is eventually consistent after a default-branch rename. Hold
+  # for a short window so downstream github_branch / ruleset operations don't
+  # race the rename and fail intermittently.
+  depends_on      = [github_branch_default.default]
+  create_duration = "15s"
+}
+
 resource "github_branch" "branches" {
   for_each = local.branches
 
   repository = each.value.repository
   branch     = each.value.branch
 
-  # Use the source branch name directly (string value) to avoid circular dependencies
-  # within the for_each loop. Terraform will handle ordering via depends_on.
   source_branch = each.value.source_branch
 
-  # Ensure the default branch is renamed before creating other branches.
-  # This is critical when source_branch references the renamed default branch.
-  # Wait for GitHub API propagation via time_sleep to avoid race conditions
-  depends_on = [github_branch_default.default]
+  depends_on = [time_sleep.after_branch_default]
 }
 
 resource "github_repository_ruleset" "branch" {
@@ -370,9 +406,186 @@ resource "github_repository_ruleset" "branch" {
     }
   }
 
-  # Ordering: create/rename branches first, then apply rulesets so the rules don't block branch creation.
+  # Ordering:
+  #   1. Repo exists + default branch renamed + eventual-consistency delay.
+  #   2. CODEOWNERS landed on the default branch (so require_code_owner_review
+  #      doesn't activate against a missing file and block the first PR).
+  #   3. Then apply the ruleset.
+  #
+  # NOTE: github_branch.branches is intentionally ABSENT. Rulesets and
+  # CODEOWNERS target the default branch, not secondary branches. A failed
+  # secondary branch must not strand the repo without protections. If the
+  # framework later supports non-default-branch CODEOWNERS or branch-scoped
+  # (non-pattern) rulesets, this dependency list must be revisited.
   depends_on = [
     github_branch_default.default,
-    github_branch.branches
+    time_sleep.after_branch_default,
+    github_repository_file.codeowners,
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = contains(["active", "evaluate", "disabled"], each.value.enforcement)
+      error_message = "Ruleset '${each.key}' has invalid enforcement '${each.value.enforcement}'. Must be one of: active, evaluate, disabled."
+    }
+
+    # When a rule turns on require_code_owner_review, the framework must
+    # either have an explicit per-repo codeowners string OR be able to
+    # synthesize one (personal-account mode). If neither is true, fail
+    # plan — activating the rule against a missing CODEOWNERS file would
+    # block every subsequent PR in the repo.
+    precondition {
+      condition = (
+        try(each.value.rules.pull_request.require_code_owner_review, false) == false
+        || local.all_repositories[each.value.repository].effective_codeowners != null
+      )
+      error_message = "Ruleset '${each.key}' enables require_code_owner_review but repository '${each.value.repository}' has no effective CODEOWNERS source. Set repository.codeowners in its YAML (org mode), or set var.repo_default_codeowners, or run in personal-account mode (github_is_organization=false) to auto-synthesize."
+    }
+  }
+}
+
+resource "github_repository_environment" "environment" {
+  for_each = local.repository_environments
+
+  repository          = github_repository.repo[each.value.repository].name
+  environment         = each.value.name
+  wait_timer          = each.value.wait_timer
+  can_admins_bypass   = each.value.can_admins_bypass
+  prevent_self_review = each.value.prevent_self_review
+
+  dynamic "reviewers" {
+    for_each = each.value.reviewers == null ? [] : [each.value.reviewers]
+    content {
+      users = reviewers.value.users
+      teams = reviewers.value.teams
+    }
+  }
+
+  dynamic "deployment_branch_policy" {
+    for_each = each.value.deployment_branch_policy == null ? [] : [each.value.deployment_branch_policy]
+    content {
+      protected_branches     = deployment_branch_policy.value.protected_branches
+      custom_branch_policies = deployment_branch_policy.value.custom_branch_policies
+    }
+  }
+
+  depends_on = [github_repository.repo]
+
+  lifecycle {
+    precondition {
+      condition     = each.value.wait_timer >= 0 && each.value.wait_timer <= 43200
+      error_message = "Environment '${each.key}' wait_timer must be between 0 and 43200 minutes (30 days)."
+    }
+
+    precondition {
+      condition = !(
+        try(each.value.deployment_branch_policy.protected_branches, false)
+        && try(each.value.deployment_branch_policy.custom_branch_policies, false)
+      )
+      error_message = "Environment '${each.key}' cannot enable both protected_branches and custom_branch_policies in deployment_branch_policy."
+    }
+  }
+}
+
+resource "github_repository_environment_deployment_policy" "environment" {
+  for_each = local.repository_environment_branch_policies
+
+  repository     = github_repository.repo[each.value.repository].name
+  environment    = each.value.environment
+  branch_pattern = each.value.pattern
+
+  depends_on = [github_repository_environment.environment]
+}
+
+resource "github_actions_environment_variable" "env_var" {
+  for_each = local.repository_environment_variables
+
+  repository    = github_repository.repo[each.value.repository].name
+  environment   = each.value.environment
+  variable_name = each.value.name
+  value         = each.value.value
+
+  depends_on = [github_repository_environment.environment]
+}
+
+resource "github_actions_environment_secret" "env_secret" {
+  for_each = local.repository_environment_secrets
+
+  repository  = github_repository.repo[each.value.repository].name
+  environment = each.value.environment
+  secret_name = each.value.name
+
+  # Terraform declares the secret shell only. The real value is rotated
+  # out-of-band (manual paste in GitHub UI, external rotator, etc.) and
+  # ignored on subsequent plans to avoid drift / forced updates.
+  plaintext_value = ""
+
+  lifecycle {
+    ignore_changes = [
+      plaintext_value,
+      encrypted_value,
+    ]
+  }
+
+  depends_on = [github_repository_environment.environment]
+}
+
+resource "github_actions_repository_permissions" "actions" {
+  for_each = {
+    for name, repo in local.all_repositories :
+    name => repo
+    if repo.actions != null && !repo.archived
+  }
+
+  repository      = github_repository.repo[each.key].name
+  enabled         = each.value.actions.enabled
+  allowed_actions = each.value.actions.allowed_actions
+
+  dynamic "allowed_actions_config" {
+    for_each = each.value.actions.allowed_actions_config == null ? [] : [each.value.actions.allowed_actions_config]
+    content {
+      github_owned_allowed = allowed_actions_config.value.github_owned_allowed
+      verified_allowed     = allowed_actions_config.value.verified_allowed
+      patterns_allowed     = allowed_actions_config.value.patterns_allowed
+    }
+  }
+
+  depends_on = [github_repository.repo]
+
+  lifecycle {
+    precondition {
+      condition     = contains(["all", "local_only", "selected"], each.value.actions.allowed_actions)
+      error_message = "Repository '${each.key}' actions.allowed_actions must be one of: all, local_only, selected."
+    }
+
+    precondition {
+      condition     = each.value.actions.allowed_actions != "selected" || each.value.actions.allowed_actions_config != null
+      error_message = "Repository '${each.key}' sets actions.allowed_actions='selected' but allowed_actions_config is not provided."
+    }
+  }
+}
+
+resource "github_repository_file" "codeowners" {
+  for_each = {
+    for name, repo in local.all_repositories :
+    name => repo
+    if repo.effective_codeowners != null && !repo.archived
+  }
+
+  repository          = github_repository.repo[each.key].name
+  file                = ".github/CODEOWNERS"
+  content             = each.value.effective_codeowners
+  branch              = each.value.branches[0]
+  commit_message      = "chore(codeowners): sync CODEOWNERS via terraform"
+  commit_author       = "terraform"
+  commit_email        = "terraform@users.noreply.github.com"
+  overwrite_on_create = true
+
+  # CODEOWNERS writes to the default branch (branches[0]). Secondary
+  # branches are not needed — see the parallel note on
+  # github_repository_ruleset.branch.depends_on above.
+  depends_on = [
+    github_branch_default.default,
+    time_sleep.after_branch_default,
   ]
 }

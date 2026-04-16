@@ -1,0 +1,15 @@
+bad-push-ruleset-repo:
+  description: "push ruleset on an unsupported visibility/plan"
+  visibility: public
+  rules:
+    - name: "push-scope rule"
+      target: push
+      enforcement: active
+      conditions:
+        include:
+          - "~ALL"
+        exclude: []
+      rules:
+        file_path_restriction:
+          restricted_file_paths:
+            - "secrets/*"

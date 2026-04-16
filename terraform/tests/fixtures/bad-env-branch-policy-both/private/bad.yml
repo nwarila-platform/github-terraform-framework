@@ -1,0 +1,8 @@
+bad-env-branch-policy-both-repo:
+  description: "deployment_branch_policy with mutually exclusive flags both true"
+  visibility: private
+  environments:
+    production:
+      deployment_branch_policy:
+        protected_branches: true
+        custom_branch_policies: true

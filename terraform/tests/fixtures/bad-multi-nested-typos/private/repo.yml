@@ -1,0 +1,87 @@
+bad-multi-nested-typos-repo:
+  description: "A single repo containing intentional typos in every nested validator walker, so one run exercises every walker in local.unknown_nested_key_errors. If any walker regresses, this fixture stops producing its error and the overall error count drops — COVERAGE.md's numeric assertion catches that."
+  visibility: private
+
+  # 1. pages top-level: 'buildtype' should be 'build_type'
+  # 2. pages.source: 'brnach' should be 'branch'
+  pages:
+    buildtype: workflow
+    source:
+      brnach: main
+
+  # 3. template: 'includeallbranches' should be 'include_all_branches'
+  template:
+    owner: example
+    repository: starter
+    includeallbranches: true
+
+  # 4. security_and_analysis: 'advnaced_security' should be 'advanced_security'
+  security_and_analysis:
+    advnaced_security: true
+
+  # 5. actions top-level: 'enabld' should be 'enabled'
+  # 6. actions.allowed_actions_config: 'github_owned' should be 'github_owned_allowed'
+  actions:
+    enabld: true
+    allowed_actions: selected
+    allowed_actions_config:
+      github_owned: true
+      verified_allowed: true
+      patterns_allowed: []
+
+  # 7. environments[] top-level: 'wait_time' should be 'wait_timer'
+  # 8. environments[].reviewers: 'usres' should be 'users'
+  # 9. environments[].deployment_branch_policy: 'protect_branches' should be 'protected_branches'
+  environments:
+    production:
+      wait_time: 30
+      reviewers:
+        usres: []
+        teams: []
+      deployment_branch_policy:
+        protect_branches: true
+
+  rules:
+    # 10. rules[] top-level: 'enforcment' should be 'enforcement'
+    # 11. rules[].conditions: 'incldue' should be 'include'
+    # 12. rules[].bypass_actors[]: 'actor_idd' should be 'actor_id'
+    # 13. rules[].rules: 'pull_reqeust' should be 'pull_request' (tests rules.rules walker)
+    # 14. rules[].rules.pull_request: 'requier_code_owner_review' should be 'require_code_owner_review'
+    - name: "typo ruleset 1"
+      target: branch
+      enforcment: active
+      conditions:
+        incldue:
+          - "~DEFAULT_BRANCH"
+      bypass_actors:
+        - actor_idd: 5
+          actor_type: RepositoryRole
+      rules:
+        pull_reqeust:
+          allowed_merge_methods:
+            - squash
+        pull_request:
+          allowed_merge_methods:
+            - squash
+          requier_code_owner_review: true
+
+    # 15. rules[].rules.merge_queue: 'grouping_strat' should be 'grouping_strategy'
+    # 16. rules[].rules.copilot_code_review: 'review_on_pussh' should be 'review_on_push'
+    # 17. rules[].rules.required_status_checks: 'do_not_enforce' should be 'do_not_enforce_on_create'
+    # 18. pattern block: 'oprator' should be 'operator' (exercises the uniform pattern walker)
+    - name: "typo ruleset 2"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+      rules:
+        merge_queue:
+          grouping_strat: ALLGREEN
+        copilot_code_review:
+          review_on_pussh: true
+        required_status_checks:
+          do_not_enforce: false
+        branch_name_pattern:
+          oprator: regex
+          pattern: "^release/.*$"

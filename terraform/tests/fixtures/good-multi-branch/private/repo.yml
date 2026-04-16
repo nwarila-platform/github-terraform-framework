@@ -1,0 +1,7 @@
+good-multi-branch-repo:
+  description: "repo with a multi-branch list — exercises Finding 21 regression that non-default branches must all source from branches[0], not serially from branches[N-1]"
+  visibility: private
+  branches:
+    - main
+    - develop
+    - staging

@@ -1,0 +1,17 @@
+bad-codeowners-org-repo:
+  description: "org-mode repo with require_code_owner_review but no explicit codeowners — must be rejected by the per-resource precondition on github_repository_ruleset.branch"
+  visibility: private
+  rules:
+    - name: "PR gate requires codeowners"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        pull_request:
+          allowed_merge_methods:
+            - squash
+          require_code_owner_review: true
+          required_approving_review_count: 1

@@ -1,0 +1,3 @@
+bad-visibility-repo:
+  description: "invalid visibility value — must be rejected by the per-resource precondition on github_repository.repo"
+  visibility: bogus

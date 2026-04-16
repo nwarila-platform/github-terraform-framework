@@ -1,0 +1,6 @@
+bad-unknown-top-repo:
+  # 'descripton' is a typo for 'description'. The framework must reject
+  # this as an unknown top-level YAML key rather than silently defaulting
+  # description to null.
+  descripton: "typo in key name"
+  visibility: private

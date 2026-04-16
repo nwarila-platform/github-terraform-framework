@@ -1,0 +1,8 @@
+bad-secrets-as-map-repo:
+  description: "secrets written as key-value map instead of list of names — the framework must reject this to prevent secret values from being committed to git in plaintext"
+  visibility: private
+  environments:
+    production:
+      secrets:
+        DEPLOY_KEY: "this-is-a-secret-value-that-should-not-be-here"
+        API_TOKEN: "sk-live-fake-token"

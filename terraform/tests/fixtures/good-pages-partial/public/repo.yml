@@ -1,0 +1,7 @@
+good-pages-partial-repo:
+  description: "pages block with only cname set — regression for the pre-fix 'try(repository.pages.cname)' single-arg bug"
+  visibility: public
+  pages:
+    cname: docs.example.com
+    # build_type and source intentionally omitted to verify every field
+    # under pages.* accesses via try(..., null).
