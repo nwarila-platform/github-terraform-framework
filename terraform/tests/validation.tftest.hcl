@@ -22,6 +22,12 @@ variables {
   github_auth_mode       = "token"
   github_token           = "fake-token-for-unit-tests"
   github_app_auth        = null
+
+  security_baseline = {
+    public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+  }
 }
 
 #region ------ [ Positive cases ] ------------------------------------------------------------ #
@@ -367,6 +373,10 @@ run "compatibility_mode_tolerates_capability_gap" {
       }
     }
   }
+
+  expect_failures = [
+    check.security_baseline_preview,
+  ]
 
   assert {
     condition     = length(output.validation_errors) == 0

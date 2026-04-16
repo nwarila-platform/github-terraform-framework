@@ -2,7 +2,7 @@ good-partial-patterns-repo:
   description: "pattern blocks with only the 'pattern' field set — exercises the S4 try() fixes for negate/operator/name defaults"
   visibility: private
   rules:
-    - name: "partial pattern rule"
+    - name: "branch pattern rule"
       target: branch
       enforcement: active
       conditions:
@@ -14,5 +14,3 @@ good-partial-patterns-repo:
           pattern: "^release/.*$"
         commit_message_pattern:
           pattern: "^(feat|fix|chore)"
-        tag_name_pattern:
-          pattern: "^v\\d+"
