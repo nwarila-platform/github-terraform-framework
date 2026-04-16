@@ -1,0 +1,15 @@
+good-internal-push-ruleset-repo:
+  description: "internal repo with a push-target ruleset — valid when var.github_supports_push_rulesets=true, because push rulesets support private AND internal"
+  visibility: internal
+  rules:
+    - name: "secrets path restriction"
+      target: push
+      enforcement: active
+      conditions:
+        include:
+          - "~ALL"
+        exclude: []
+      rules:
+        file_path_restriction:
+          restricted_file_paths:
+            - "secrets/*"

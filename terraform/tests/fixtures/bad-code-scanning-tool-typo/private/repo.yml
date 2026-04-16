@@ -1,0 +1,17 @@
+bad-code-scanning-tool-repo:
+  description: "required_code_scanning_tool with typo — 'alert_threshold' should be 'alerts_threshold'"
+  visibility: private
+  rules:
+    - name: "code scanning gate"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        required_code_scanning:
+          required_code_scanning_tool:
+            - tool: CodeQL
+              alert_threshold: high_or_higher
+              security_alerts_threshold: high_or_higher

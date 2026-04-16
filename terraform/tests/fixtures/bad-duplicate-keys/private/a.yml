@@ -1,0 +1,3 @@
+duplicate-repo:
+  description: "private side of the duplicate. merge() would silently clobber one side; duplicate_key_error must fail plan instead."
+  visibility: private

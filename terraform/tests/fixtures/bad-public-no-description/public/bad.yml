@@ -1,0 +1,5 @@
+bad-public-no-description-repo:
+  visibility: public
+  # No description — must be rejected by the per-resource precondition
+  # on github_repository.repo that enforces non-empty description for
+  # public repos.

@@ -1,0 +1,10 @@
+good-explicit-security-override-repo:
+  description: "repo with explicit security_and_analysis block that opts OUT of features the baseline would otherwise turn on — exercises the precedence path where explicit YAML wins over baseline"
+  visibility: private
+  security_and_analysis:
+    # Explicit false for advanced_security — even if baseline says true
+    # and capability allows it, this explicit value wins.
+    advanced_security: false
+    # Explicit true for secret_scanning — even if baseline says false,
+    # this explicit value wins.
+    secret_scanning: true

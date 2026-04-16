@@ -1,0 +1,8 @@
+bad-env-wait-timer-repo:
+  description: "environment wait_timer out of range"
+  visibility: private
+  environments:
+    production:
+      # 44000 > 43200 (30 day cap) — must be rejected by the per-resource
+      # precondition on github_repository_environment.environment.
+      wait_timer: 44000

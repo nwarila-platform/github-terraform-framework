@@ -1,0 +1,8 @@
+bad-actions-selected-no-config-repo:
+  description: "actions.allowed_actions=selected without allowed_actions_config"
+  visibility: private
+  actions:
+    enabled: true
+    allowed_actions: selected
+    # No allowed_actions_config — must be rejected by the per-resource
+    # precondition on github_actions_repository_permissions.actions.

@@ -1,0 +1,20 @@
+good-org-codeowners-repo:
+  description: "org-mode repo with explicit codeowners — ruleset precondition passes because effective_codeowners is non-null"
+  visibility: private
+  codeowners: |
+    * @platform-team
+    .github/ @security-team
+  rules:
+    - name: "PR gate"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        pull_request:
+          allowed_merge_methods:
+            - squash
+          require_code_owner_review: true
+          required_approving_review_count: 1

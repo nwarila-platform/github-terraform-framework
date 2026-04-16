@@ -1,0 +1,20 @@
+good-env-repo:
+  description: "fully-specified environment block covering reviewers, deployment policy, variables, and secret shells"
+  visibility: private
+  environments:
+    production:
+      wait_timer: 30
+      can_admins_bypass: false
+      prevent_self_review: true
+      reviewers:
+        users: []
+        teams: []
+      deployment_branch_policy:
+        protected_branches: true
+        custom_branch_policies: false
+      variables:
+        LOG_LEVEL: info
+        MAX_RETRIES: 3
+      secrets:
+        - DEPLOY_KEY
+        - API_TOKEN

@@ -1,0 +1,6 @@
+good-fork-repo:
+  description: "repo declared as a fork — source_owner and source_repo must pass through, and archive_on_destroy default still applies"
+  visibility: private
+  fork: true
+  source_owner: upstream-org
+  source_repo: upstream-repo

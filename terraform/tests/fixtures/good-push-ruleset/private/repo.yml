@@ -1,0 +1,16 @@
+good-push-ruleset-repo:
+  description: "private repo with a push-target ruleset — valid when var.github_supports_push_rulesets=true"
+  visibility: private
+  rules:
+    - name: "secrets path restriction"
+      target: push
+      enforcement: active
+      conditions:
+        include:
+          - "~ALL"
+        exclude: []
+      rules:
+        file_path_restriction:
+          restricted_file_paths:
+            - "secrets/*"
+            - "**/*.pem"

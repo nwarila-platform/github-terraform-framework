@@ -1,0 +1,8 @@
+bad-unknown-nested-repo:
+  description: "nested key typo fixture"
+  visibility: private
+  actions:
+    # 'enable' is wrong — the framework expects 'enabled'. A typo here
+    # must surface as an unknown-nested-key error, not silently default.
+    enable: true
+    allowed_actions: all
