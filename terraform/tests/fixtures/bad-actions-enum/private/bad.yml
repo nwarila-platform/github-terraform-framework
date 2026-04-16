@@ -1,0 +1,6 @@
+bad-actions-enum-repo:
+  description: "actions.allowed_actions is not one of all/local_only/selected"
+  visibility: private
+  actions:
+    enabled: true
+    allowed_actions: bogus

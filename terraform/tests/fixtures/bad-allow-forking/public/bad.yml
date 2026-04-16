@@ -1,0 +1,8 @@
+bad-allow-forking-repo:
+  description: "allow_forking fixture"
+  visibility: private
+  # allow_forking is intentionally absent from local.allowed_repo_keys
+  # because the framework does not currently manage the setting. Accepting
+  # it would be a silent no-op, so it is rejected at the unknown-top-level
+  # key validation stage.
+  allow_forking: true

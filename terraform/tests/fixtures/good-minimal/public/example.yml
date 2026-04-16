@@ -1,0 +1,3 @@
+example-public-repo:
+  description: "Minimal valid public repo fixture for terraform test regression suite."
+  visibility: public

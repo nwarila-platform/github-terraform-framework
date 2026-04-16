@@ -1,0 +1,17 @@
+good-partial-merge-queue-repo:
+  description: "merge_queue with only a subset of fields set — exercises the S4 try() fixes so omitted fields don't crash plan"
+  visibility: private
+  rules:
+    - name: "partial merge queue"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        merge_queue:
+          merge_method: SQUASH
+          # All other merge_queue fields intentionally omitted to verify
+          # that every try(rule.rules.merge_queue.X, null) access handles
+          # the missing key gracefully.

@@ -1,0 +1,18 @@
+good-partial-pull-request-repo:
+  description: "pull_request block with only allowed_merge_methods set — every other field defaults via coalesce(try(...))"
+  visibility: private
+  rules:
+    - name: "partial PR gate"
+      target: branch
+      enforcement: active
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        pull_request:
+          allowed_merge_methods:
+            - squash
+          # dismiss_stale_reviews_on_push, require_code_owner_review,
+          # require_last_push_approval, required_approving_review_count,
+          # required_review_thread_resolution — all intentionally omitted.

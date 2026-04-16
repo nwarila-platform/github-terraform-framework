@@ -1,0 +1,13 @@
+bad-ruleset-enforcement-repo:
+  description: "invalid ruleset enforcement value"
+  visibility: private
+  rules:
+    - name: "invalid enforcement rule"
+      target: branch
+      enforcement: bogus
+      conditions:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+      rules:
+        non_fast_forward: true
