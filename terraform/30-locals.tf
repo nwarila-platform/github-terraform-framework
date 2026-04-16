@@ -551,7 +551,13 @@ locals {
       # reported as a plan-blocking global validation error, so by the time
       # this expression runs the capability check is just a guard.
       security_and_analysis = (
-        length([
+        # Guard: if visibility is not a known key in the baseline/capability
+        # matrices (e.g., a typo like "bogus"), skip security normalization
+        # entirely — the per-resource precondition on visibility enum will
+        # reject the plan before any resource is created.
+        !contains(["public", "private", "internal"], coalesce(try(repository.visibility, null), "private"))
+        ? null
+        : length([
           for feat in local.security_features :
           feat if(
             try(repository.security_and_analysis[feat], null) != null
@@ -592,7 +598,7 @@ locals {
 
       #endregion --- [ Template ] ------------------------------------------------------------ #
 
-      rules = try(repository.rules, null) == null ? var.repo_default_rules : repository.rules
+      rules = try(repository.rules, var.repo_default_rules)
 
       # Effective CODEOWNERS resolution (Finding 1).
       #
@@ -770,8 +776,8 @@ locals {
 
           bypass_actors = [
             for actor in try(rule.bypass_actors, []) : {
-              actor_id   = actor.actor_id
-              actor_type = actor.actor_type
+              actor_id   = try(actor.actor_id, null)
+              actor_type = try(actor.actor_type, null)
               bypass_mode = coalesce(
                 try(actor.bypass_mode, null),
                 "always"

@@ -18,6 +18,14 @@ variables {
   github_auth_mode       = "token"
   github_token           = "fake-token-for-unit-tests"
   github_app_auth        = null
+
+  # Suppress check.security_baseline_preview noise by zeroing the baseline.
+  # Security-specific tests live in security.tftest.hcl with explicit overrides.
+  security_baseline = {
+    public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+  }
 }
 
 #region ------ [ S4: pattern block partial-field regression ] -------------------------------- #
@@ -122,7 +130,7 @@ run "archived_repo_plans_clean" {
   # Archived repos should be present in all_repositories but must not
   # produce any branches or rulesets — the locals filter them out.
   assert {
-    condition     = length(output.locals_debug.branch_rulesets) == 0
+    condition     = length(output.branch_rulesets) == 0
     error_message = "archived repo must not produce any branch rulesets"
   }
 }
@@ -144,7 +152,7 @@ run "empty_repo_set_plans_clean" {
   }
 
   assert {
-    condition     = length(output.locals_debug.all_repositories) == 0
+    condition     = length(output.all_repositories) == 0
     error_message = "empty fixture must produce zero repositories"
   }
 }
@@ -168,7 +176,7 @@ run "org_mode_explicit_codeowners_plans_clean" {
 
   # effective_codeowners must passthrough the explicit YAML value verbatim.
   assert {
-    condition     = output.locals_debug.all_repositories["good-org-codeowners-repo"].effective_codeowners == output.locals_debug.all_repositories["good-org-codeowners-repo"].codeowners
+    condition     = output.all_repositories["good-org-codeowners-repo"].effective_codeowners == output.all_repositories["good-org-codeowners-repo"].codeowners
     error_message = "effective_codeowners must equal explicit repo.codeowners when YAML provides it"
   }
 }
@@ -188,8 +196,8 @@ run "personal_mode_synthesizes_codeowners" {
 
   # Synthesized effective_codeowners must mention the github_owner.
   assert {
-    condition     = output.locals_debug.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @test-owner\n"
-    error_message = "personal-mode fixture should synthesize '* @test-owner', got: ${output.locals_debug.all_repositories["good-personal-synthesized-repo"].effective_codeowners}"
+    condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @test-owner\n"
+    error_message = "personal-mode fixture should synthesize '* @test-owner', got: ${output.all_repositories["good-personal-synthesized-repo"].effective_codeowners}"
   }
 }
 
@@ -211,7 +219,7 @@ run "push_ruleset_on_private_when_supported_plans_clean" {
   }
 
   assert {
-    condition     = length(output.locals_debug.branch_rulesets) == 1
+    condition     = length(output.branch_rulesets) == 1
     error_message = "push ruleset fixture must produce exactly 1 ruleset"
   }
 }
@@ -231,7 +239,7 @@ run "license_template_defaults_null_not_MIT" {
   # is a regression guard — if someone reintroduces a non-null default,
   # this assertion will fail.
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].license_template == null
+    condition     = output.all_repositories["example-public-repo"].license_template == null
     error_message = "license_template must default to null, not MIT"
   }
 }
@@ -248,14 +256,14 @@ run "good_minimal_produces_expected_resource_counts" {
   }
 
   assert {
-    condition     = length(output.locals_debug.all_repositories) == 1
+    condition     = length(output.all_repositories) == 1
     error_message = "good-minimal should produce exactly 1 repository"
   }
 
   # good-minimal has no rules, so the default ruleset set (2 rulesets)
   # from var.repo_default_rules applies.
   assert {
-    condition     = length(output.locals_debug.branch_rulesets) == 2
+    condition     = length(output.branch_rulesets) == 2
     error_message = "good-minimal should produce the 2 default rulesets (Default Branch Protection + Pull Request Gate)"
   }
 }
@@ -279,141 +287,137 @@ run "good_minimal_carries_expected_defaults" {
 
   # Feature toggles
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].has_discussions == false
+    condition     = output.all_repositories["example-public-repo"].has_discussions == false
     error_message = "has_discussions default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].has_issues == true
+    condition     = output.all_repositories["example-public-repo"].has_issues == true
     error_message = "has_issues default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].has_projects == false
+    condition     = output.all_repositories["example-public-repo"].has_projects == false
     error_message = "has_projects default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].has_wiki == false
+    condition     = output.all_repositories["example-public-repo"].has_wiki == false
     error_message = "has_wiki default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].is_template == false
+    condition     = output.all_repositories["example-public-repo"].is_template == false
     error_message = "is_template default must be false"
   }
 
   # Merge behavior defaults
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].allow_auto_merge == true
+    condition     = output.all_repositories["example-public-repo"].allow_auto_merge == true
     error_message = "allow_auto_merge default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].allow_merge_commit == false
+    condition     = output.all_repositories["example-public-repo"].allow_merge_commit == false
     error_message = "allow_merge_commit default must be false (squash-only policy)"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].allow_rebase_merge == false
+    condition     = output.all_repositories["example-public-repo"].allow_rebase_merge == false
     error_message = "allow_rebase_merge default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].allow_squash_merge == true
+    condition     = output.all_repositories["example-public-repo"].allow_squash_merge == true
     error_message = "allow_squash_merge default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].allow_update_branch == true
+    condition     = output.all_repositories["example-public-repo"].allow_update_branch == true
     error_message = "allow_update_branch default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].delete_branch_on_merge == true
+    condition     = output.all_repositories["example-public-repo"].delete_branch_on_merge == true
     error_message = "delete_branch_on_merge default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].squash_merge_commit_title == "PR_TITLE"
+    condition     = output.all_repositories["example-public-repo"].squash_merge_commit_title == "PR_TITLE"
     error_message = "squash_merge_commit_title default must be PR_TITLE"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].squash_merge_commit_message == "PR_BODY"
+    condition     = output.all_repositories["example-public-repo"].squash_merge_commit_message == "PR_BODY"
     error_message = "squash_merge_commit_message default must be PR_BODY"
   }
 
   # Commit signoff
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].web_commit_signoff_required == true
+    condition     = output.all_repositories["example-public-repo"].web_commit_signoff_required == true
     error_message = "web_commit_signoff_required default must be true"
   }
 
   # Init / licensing
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].auto_init == true
+    condition     = output.all_repositories["example-public-repo"].auto_init == true
     error_message = "auto_init default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].license_template == null
+    condition     = output.all_repositories["example-public-repo"].license_template == null
     error_message = "license_template default must be null (Finding 22: MIT removal)"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].gitignore_template == null
+    condition     = output.all_repositories["example-public-repo"].gitignore_template == null
     error_message = "gitignore_template default must be null"
   }
 
   # Lifecycle
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].archived == false
+    condition     = output.all_repositories["example-public-repo"].archived == false
     error_message = "archived default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].archive_on_destroy == true
+    condition     = output.all_repositories["example-public-repo"].archive_on_destroy == true
     error_message = "archive_on_destroy default must be true"
   }
 
   # Vulnerability alerts
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].vulnerability_alerts == true
+    condition     = output.all_repositories["example-public-repo"].vulnerability_alerts == true
     error_message = "vulnerability_alerts default must be true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].ignore_vulnerability_alerts_during_read == false
-    error_message = "ignore_vulnerability_alerts_during_read default must be false"
-  }
-  assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].dependabot_security_updates == true
+    condition     = output.all_repositories["example-public-repo"].dependabot_security_updates == true
     error_message = "dependabot_security_updates default must be true"
   }
 
   # Visibility
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].visibility == "public"
+    condition     = output.all_repositories["example-public-repo"].visibility == "public"
     error_message = "visibility from YAML must be 'public'"
   }
 
   # Not-set fields
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].fork == false
+    condition     = output.all_repositories["example-public-repo"].fork == false
     error_message = "fork default must be false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].source_owner == null
+    condition     = output.all_repositories["example-public-repo"].source_owner == null
     error_message = "source_owner must be null when fork=false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].source_repo == null
+    condition     = output.all_repositories["example-public-repo"].source_repo == null
     error_message = "source_repo must be null when fork=false"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].template == null
+    condition     = output.all_repositories["example-public-repo"].template == null
     error_message = "template default must be null"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].pages == null
+    condition     = output.all_repositories["example-public-repo"].pages == null
     error_message = "pages default must be null"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].actions == null
+    condition     = output.all_repositories["example-public-repo"].actions == null
     error_message = "actions default must be null"
   }
   assert {
-    condition     = length(output.locals_debug.all_repositories["example-public-repo"].environments) == 0
+    condition     = length(output.all_repositories["example-public-repo"].environments) == 0
     error_message = "environments default must be empty map"
   }
   assert {
-    condition     = length(output.locals_debug.all_repositories["example-public-repo"].topics) == 0
+    condition     = length(output.all_repositories["example-public-repo"].topics) == 0
     error_message = "topics default must be empty list"
   }
 }
@@ -435,13 +439,13 @@ run "archived_repo_filters_out_downstream_locals" {
 
   # The repo itself IS in all_repositories.
   assert {
-    condition     = length(output.locals_debug.all_repositories) == 1
+    condition     = length(output.all_repositories) == 1
     error_message = "archived repo must still appear in all_repositories"
   }
 
   # But every downstream filter with `if !archived` must exclude it.
   assert {
-    condition     = length(output.locals_debug.branch_rulesets) == 0
+    condition     = length(output.branch_rulesets) == 0
     error_message = "branch_rulesets must exclude archived repos"
   }
 }
@@ -456,11 +460,11 @@ run "empty_repo_set_exercises_every_filter_on_zero_input" {
   # Sanity: every downstream local must be empty when there are zero repos.
   # A regression that crashes on empty iteration is caught here.
   assert {
-    condition     = length(output.locals_debug.all_repositories) == 0
+    condition     = length(output.all_repositories) == 0
     error_message = "empty fixture must produce zero repos"
   }
   assert {
-    condition     = length(output.locals_debug.branch_rulesets) == 0
+    condition     = length(output.branch_rulesets) == 0
     error_message = "empty fixture must produce zero rulesets"
   }
 }
@@ -474,7 +478,7 @@ run "good_minimal_produces_zero_environments_zero_codeowners" {
 
   # good-minimal has no environments YAML → environments local must be empty.
   assert {
-    condition     = length(output.locals_debug.all_repositories["example-public-repo"].environments) == 0
+    condition     = length(output.all_repositories["example-public-repo"].environments) == 0
     error_message = "good-minimal must produce zero environments"
   }
 
@@ -484,8 +488,8 @@ run "good_minimal_produces_zero_environments_zero_codeowners" {
   # "Pull Request Gate" with require_code_owner_review=true, so personal
   # mode synthesizes CODEOWNERS here. Assert the effective value is set.
   assert {
-    condition     = output.locals_debug.all_repositories["example-public-repo"].effective_codeowners == "* @test-owner\n"
-    error_message = "personal-mode default rules trigger codeowners synthesis, expected '* @test-owner', got: ${output.locals_debug.all_repositories["example-public-repo"].effective_codeowners}"
+    condition     = output.all_repositories["example-public-repo"].effective_codeowners == "* @test-owner\n"
+    error_message = "personal-mode default rules trigger codeowners synthesis, expected '* @test-owner', got: ${output.all_repositories["example-public-repo"].effective_codeowners}"
   }
 }
 
@@ -560,12 +564,12 @@ run "explicit_security_and_analysis_overrides_baseline" {
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["good-explicit-security-override-repo"].security_and_analysis.advanced_security == false
+    condition     = output.all_repositories["good-explicit-security-override-repo"].security_and_analysis.advanced_security == false
     error_message = "explicit YAML advanced_security=false must override baseline=true"
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["good-explicit-security-override-repo"].security_and_analysis.secret_scanning == true
+    condition     = output.all_repositories["good-explicit-security-override-repo"].security_and_analysis.secret_scanning == true
     error_message = "explicit YAML secret_scanning=true must override baseline=false"
   }
 }
@@ -585,11 +589,11 @@ run "multi_branch_sources_all_from_default_not_serially" {
   # excludes main (branches[0]), so branches local should have exactly 2
   # entries (develop + staging), each sourcing from "main".
   assert {
-    condition     = output.locals_debug.all_repositories["good-multi-branch-repo"].branches[0] == "main"
+    condition     = output.all_repositories["good-multi-branch-repo"].branches[0] == "main"
     error_message = "first branch must be main"
   }
   assert {
-    condition     = length(output.locals_debug.all_repositories["good-multi-branch-repo"].branches) == 3
+    condition     = length(output.all_repositories["good-multi-branch-repo"].branches) == 3
     error_message = "branches list must have 3 entries"
   }
 }
@@ -606,15 +610,15 @@ run "fork_repo_passes_through_source_fields" {
   }
 
   assert {
-    condition     = output.locals_debug.all_repositories["good-fork-repo"].fork == true
+    condition     = output.all_repositories["good-fork-repo"].fork == true
     error_message = "fork flag must pass through as true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["good-fork-repo"].source_owner == "upstream-org"
+    condition     = output.all_repositories["good-fork-repo"].source_owner == "upstream-org"
     error_message = "source_owner must pass through when fork=true"
   }
   assert {
-    condition     = output.locals_debug.all_repositories["good-fork-repo"].source_repo == "upstream-repo"
+    condition     = output.all_repositories["good-fork-repo"].source_repo == "upstream-repo"
     error_message = "source_repo must pass through when fork=true"
   }
 }

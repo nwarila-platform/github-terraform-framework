@@ -20,7 +20,7 @@ resource "terraform_data" "framework_validation" {
   lifecycle {
     precondition {
       condition     = length(local.global_validation_errors) == 0
-      error_message = "Framework validation failed:\n\n${join("\n\n", local.global_validation_errors)}"
+      error_message = nonsensitive("Framework validation failed:\n\n${join("\n\n", local.global_validation_errors)}")
     }
   }
 }

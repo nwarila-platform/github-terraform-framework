@@ -21,6 +21,12 @@ variables {
   github_auth_mode       = "token"
   github_token           = "fake-token-for-unit-tests"
   github_app_auth        = null
+
+  security_baseline = {
+    public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+  }
 }
 
 #region ------ [ github_repository.repo preconditions ] -------------------------------------- #
