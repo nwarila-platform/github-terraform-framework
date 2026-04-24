@@ -260,11 +260,11 @@ run "good_minimal_produces_expected_resource_counts" {
     error_message = "good-minimal should produce exactly 1 repository"
   }
 
-  # good-minimal has no rules, so the default ruleset set (2 rulesets)
+  # good-minimal has no rules, so the default ruleset set (3 rulesets)
   # from var.repo_default_rules applies.
   assert {
-    condition     = length(output.branch_rulesets) == 2
-    error_message = "good-minimal should produce the 2 default rulesets (Default Branch Protection + Pull Request Gate)"
+    condition     = length(output.branch_rulesets) == 3
+    error_message = "good-minimal should produce the 3 default rulesets (Branch Safety + Pull Request Gate + Release Tag Protection)"
   }
 }
 
