@@ -71,9 +71,13 @@
     - [10.3.4 `require_last_push_approval`](#1034-require_last_push_approval)
     - [10.3.5 `required_approving_review_count`](#1035-required_approving_review_count)
     - [10.3.6 `required_review_thread_resolution`](#1036-required_review_thread_resolution)
-  - [10.4 Ruleset: Bypass Actors](#104-ruleset-bypass-actors)
-  - [10.5 Ruleset: Conditions](#105-ruleset-conditions)
-  - [10.6 Rules Not Enabled by Default (and Why)](#106-rules-not-enabled-by-default-and-why)
+  - [10.4 Ruleset: Release Tag Protection](#104-ruleset-release-tag-protection)
+    - [10.4.1 `deletion`](#1041-deletion)
+    - [10.4.2 `non_fast_forward`](#1042-non_fast_forward)
+    - [10.4.3 `required_signatures`](#1043-required_signatures)
+  - [10.5 Ruleset: Bypass Actors](#105-ruleset-bypass-actors)
+  - [10.6 Ruleset: Conditions](#106-ruleset-conditions)
+  - [10.7 Rules Not Enabled by Default (and Why)](#107-rules-not-enabled-by-default-and-why)
 - [11. Terraform Resource Lifecycle](#11-terraform-resource-lifecycle)
 - [12. Properties Intentionally Omitted](#12-properties-intentionally-omitted)
 - [13. Per-Repository Deviation Policy](#13-per-repository-deviation-policy)
@@ -814,9 +818,52 @@ Requires all review conversation threads to be resolved before merging.
 
 **Recommendation**: `true`. Unresolved review threads indicate open questions or concerns. Merging with unresolved threads means merging code that hasn't been fully vetted. This is a quality gate — every piece of feedback must be explicitly acknowledged (resolved or addressed).
 
-### 10.4 Ruleset: Bypass Actors
+### 10.4 Ruleset: Release Tag Protection
 
-The Pull Request Gate ruleset includes a bypass actor for Repository Admins:
+**Name**: `Release Tag Protection`
+**Target**: `tag`
+**Enforcement**: `active`
+**Scope**: `~ALL` (every tag in the repository)
+**Bypass**: Repository Admins (`actor_id: 5`, `actor_type: RepositoryRole`, `bypass_mode: always`)
+
+Protects every tag from silent replacement, deletion, or unsigned creation. Published release tags (typically produced by release-please, `git tag -s`, or a release workflow) are high-value supply-chain artefacts — downstream consumers pin by tag, so a silently re-pointed tag is indistinguishable from a compromise.
+
+Tag creation is intentionally left unrestricted so the normal release workflow works without bypass. The three enabled rules below close the drift vectors that matter.
+
+#### 10.4.1 `deletion`
+
+| | |
+|---|---|
+| **Value** | `true` |
+| **Governance** | [SLSA: Source Integrity](https://slsa.dev/spec/v1.0/requirements#source-requirements), [OpenSSF Scorecard: Signed-Releases](https://github.com/ossf/scorecard/blob/main/docs/checks.md#signed-releases) |
+
+Prevents deletion of any tag without bypass. Deleting a published release tag breaks every downstream consumer that pinned to it and destroys the audit trail that links a released artefact to its source commit.
+
+Admin bypass is deliberate: the owner may need to delete a tag that accidentally embedded a leaked secret, was cut from the wrong SHA, or predates a public release decision.
+
+#### 10.4.2 `non_fast_forward`
+
+| | |
+|---|---|
+| **Value** | `true` |
+| **Governance** | [Git Project: Tag Immutability](https://git-scm.com/book/en/v2/Git-Basics-Tagging), SLSA source integrity |
+
+Prevents force-updating a tag to point at a different commit. Without this rule, `git tag -f v1.2.3 <new-sha> && git push --force origin v1.2.3` silently re-points the tag, and consumers that re-pull the same tag name receive different bytes than before. This is the classic supply-chain attack vector for tag-based distribution.
+
+#### 10.4.3 `required_signatures`
+
+| | |
+|---|---|
+| **Value** | `true` |
+| **Governance** | [Git Commit Signing](https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work), [OpenSSF Scorecard: Signed-Releases](https://github.com/ossf/scorecard/blob/main/docs/checks.md#signed-releases), [SLSA Level 2](https://slsa.dev/spec/v1.0/levels#build-l2) |
+
+Requires the tag (and the commit it points at) to carry a verified GPG, SSH, or S/MIME signature. Combined with `deletion` and `non_fast_forward`, this gives every tag a cryptographically verifiable provenance chain that consumers can validate offline.
+
+**Release-please / release-bot note**: release-automation bots must be configured to sign the tags they produce, either via a committed signing key or a GitHub App identity. An unsigned bot-created tag will be rejected by this rule. This is intentional — bot-authored releases carry the same supply-chain weight as human-authored ones.
+
+### 10.5 Ruleset: Bypass Actors
+
+The Pull Request Gate and Release Tag Protection rulesets include a bypass actor for Repository Admins:
 
 ```yaml
 bypass_actors:
@@ -825,7 +872,7 @@ bypass_actors:
     bypass_mode: always
 ```
 
-**Actor ID `5`** = Repository Admin role. This is essential for a solo developer account — without it, no one could merge PRs (since you can't approve your own PR). The bypass is scoped to the Pull Request Gate only; the Default Branch Protection ruleset has **no bypass actors**, meaning even admins cannot force-push or delete the default branch.
+**Actor ID `5`** = Repository Admin role. This is essential for a solo developer account — without it, no one could merge PRs (since you can't approve your own PR) and no one could perform emergency tag remediation. The bypass is scoped to the Pull Request Gate and Release Tag Protection; the Default Branch Protection ruleset has **no bypass actors**, meaning even admins cannot force-push or delete the default branch.
 
 **Available Actor IDs**:
 | ID | Role |
@@ -840,9 +887,9 @@ bypass_actors:
 - `pull_request`: Can only bypass during PR merges
 - `exempt`: Exempt from the rule entirely
 
-### 10.5 Ruleset: Conditions
+### 10.6 Ruleset: Conditions
 
-Both rulesets target `~DEFAULT_BRANCH` with no exclusions:
+The Default Branch Protection and Pull Request Gate rulesets target `~DEFAULT_BRANCH` with no exclusions:
 
 ```yaml
 conditions:
@@ -856,7 +903,18 @@ conditions:
 - It works across repos that may use different default branch names
 - `~ALL` is available to protect all branches, but would be overly restrictive
 
-### 10.6 Rules Not Enabled by Default (and Why)
+The Release Tag Protection ruleset targets `~ALL` with no exclusions:
+
+```yaml
+conditions:
+  include:
+    - "~ALL"
+  exclude: []
+```
+
+`~ALL` on a tag-target ruleset matches every tag. Repositories that want to restrict the ruleset to a subset (e.g., only `v*` tags) should override `rules[*].conditions` in their YAML.
+
+### 10.7 Rules Not Enabled by Default (and Why)
 
 | Rule | Why Not Default | When to Enable |
 |------|----------------|----------------|

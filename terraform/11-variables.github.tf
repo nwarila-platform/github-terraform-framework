@@ -469,6 +469,39 @@ variable "repo_default_rules" {
           required_review_thread_resolution = true
         }
       }
+    },
+    {
+      # Release Tag Protection.
+      #
+      # Applies to every tag in the repository. Blocks tag deletion and tag
+      # force-moves (so a pushed release cannot be silently replaced) and
+      # requires tag commits/annotations to be signed (so tag provenance is
+      # verifiable). Tag *creation* is intentionally left allowed so the
+      # normal release workflow works without bypass.
+      #
+      # Admin bypass exists for emergency remediation (e.g., deleting a tag
+      # that accidentally embedded a leaked secret or removing a tag pushed
+      # to the wrong SHA).
+      name        = "Release Tag Protection"
+      target      = "tag"
+      enforcement = "active"
+      bypass_actors = [
+        {
+          actor_id    = 5
+          actor_type  = "RepositoryRole"
+          bypass_mode = "always"
+        }
+      ]
+      conditions = {
+        include = ["~ALL"]
+        exclude = []
+      }
+
+      rules = {
+        deletion            = true
+        non_fast_forward    = true
+        required_signatures = true
+      }
     }
   ]
 }
