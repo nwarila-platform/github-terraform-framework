@@ -88,6 +88,14 @@
   - [15.3 Terraform State Security](#153-terraform-state-security)
   - [15.4 Terraform Output Security](#154-terraform-output-security)
   - [15.5 Provider Version Pinning](#155-provider-version-pinning)
+- [16. Environment Protection Rules](#16-environment-protection-rules)
+  - [16.1 What environments are managed](#161-what-environments-are-managed)
+  - [16.2 `wait_timer`](#162-wait_timer)
+  - [16.3 `can_admins_bypass`](#163-can_admins_bypass)
+  - [16.4 `prevent_self_review`](#164-prevent_self_review)
+  - [16.5 Required reviewers](#165-required-reviewers)
+  - [16.6 `deployment_branch_policy`](#166-deployment_branch_policy)
+  - [16.7 Free-plan billing limits on private repos](#167-free-plan-billing-limits-on-private-repos)
 
 ---
 
@@ -1108,3 +1116,119 @@ All provider versions are **exact-pinned** (e.g., `version = "6.10.2"`, not `ver
 
 This aligns with [SLSA Level 3](https://slsa.dev/spec/v1.0/levels#build-l3) requirements for hermetic, reproducible builds and the OpenSSF Scorecard's [Pinned-Dependencies check](https://github.com/ossf/scorecard/blob/main/docs/checks.md#pinned-dependencies).
 
+---
+
+## 16. Environment Protection Rules
+
+GitHub deployment environments give a workflow job a named gate it must pass before running. The framework manages environments via the `environments:` block in each repo's YAML and surfaces every environment-protection knob the GitHub API supports today.
+
+This section documents what each knob does, what default the framework picks when the YAML omits it, and — critically — which knobs are billing-restricted on **private repositories on the GitHub Free plan**. The Free-tier limits are not exposed by the GitHub API as feature flags; they manifest only at create time as a generic 422 ("Failed to create the environment protection rule. Please ensure the billing plan supports the required reviewers protection rule"). Worse, **some restricted settings are silently ignored rather than rejected**: the create succeeds and returns a different value than the one requested. That is why the framework explicitly tracks the matrix below instead of trusting the API to refuse what it can't honour.
+
+**Governing reference**: [GitHub Docs: Using environments for deployment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment).
+
+### 16.1 What environments are managed
+
+For each entry in a repo YAML's `environments:` map, the framework reconciles:
+
+- the environment itself (`github_repository_environment`),
+- the deployment-branch policies (custom branch patterns) that the env scopes deployments to (`github_repository_environment_deployment_policy`),
+- environment-level variables and secrets, when declared (`github_actions_environment_variable`, `github_actions_environment_secret`).
+
+Environments not listed in the YAML are not managed. Removing an environment from the YAML triggers a destroy on next apply.
+
+### 16.2 `wait_timer`
+
+| | |
+|---|---|
+| **Type** | `int` (minutes) |
+| **Default** | `0` |
+| **Range** | `0`–`43200` (30 days), validated by a precondition on the resource |
+| **Free-plan availability** | Public: yes. Private: **paid plan only** when non-zero. |
+
+Delays the start of any deployment to this environment by the configured number of minutes.
+
+**Recommendation**: `0` unless the environment is one where a cooldown is genuinely useful (e.g. a destructive operation where a slow-down window gives a human time to abort). On private repos on Free, set this to `0` regardless of intent — non-zero values are silently ignored or 422 the apply.
+
+### 16.3 `can_admins_bypass`
+
+| | |
+|---|---|
+| **Type** | `bool` |
+| **Default (framework)** | inherited from the YAML; the GitHub API default is `true` |
+| **Free-plan availability** | Public: yes. Private: **paid plan only**. |
+
+Controls whether repository admins can bypass the environment's protection rules.
+
+**Critical caveat for private + Free**: setting `can_admins_bypass: false` on a private repo on Free **does not error and does not take effect**. The GitHub API accepts the create with `false`, but the resulting environment reports `can_admins_bypass: true`. Terraform's next refresh sees the drift and proposes to flip it back to `false`, and the next apply 422s on the billing rule.
+
+**Recommendation**:
+- Public repos: set the value you actually want; both work.
+- Private repos on a paid plan: set the value you actually want; both work.
+- **Private repos on Free: always set `can_admins_bypass: true`** to match the value GitHub will hold regardless of what you ask for. Anything else creates permanent drift.
+
+### 16.4 `prevent_self_review`
+
+| | |
+|---|---|
+| **Type** | `bool` |
+| **Default (framework)** | inherited from the YAML; the GitHub API default is `false` |
+| **Free-plan availability** | Effectively only meaningful when **required reviewers** are configured (see 16.5), which is itself paid-only on private. |
+
+When `true`, the user who triggered the deployment cannot also approve it.
+
+**Recommendation**: `false` (or omit) on every environment that has no required reviewers — there is no self-review to prevent. Set to `true` only on environments that genuinely run a multi-reviewer flow.
+
+### 16.5 Required reviewers
+
+| | |
+|---|---|
+| **Type** | `reviewers: { users: [...], teams: [...] }` |
+| **Default (framework)** | omitted (no reviewer gate) |
+| **Free-plan availability** | Public: yes. Private: **paid plan only** (Team / Enterprise / GHAS). |
+
+Required reviewers force a named user or team to approve a deployment before the workflow proceeds.
+
+This is the single biggest paid-plan feature on environments. On private repos on Free, declaring `reviewers:` with any users or teams returns a 422 "Failed to create the environment protection rule" at apply time, and the environment is not created.
+
+**Recommendation**:
+- Public repos: use as needed.
+- Private repos on a paid plan: use as needed.
+- **Private repos on Free: omit `reviewers:` entirely**. Use deployment branch policies and/or `wait_timer: 0` (omit) gates instead. Reviewer enforcement on a solo-maintainer private repo is theatre regardless of plan, since the only person who could approve is the same one who dispatches.
+
+### 16.6 `deployment_branch_policy`
+
+| | |
+|---|---|
+| **Type** | `{ protected_branches: bool, custom_branch_policies: bool }` |
+| **Default (framework)** | omitted (any branch can deploy) |
+| **Free-plan availability** | Both flavours work on every plan and every visibility. |
+
+Controls which refs can target this environment. Mutually exclusive: at most one of the two booleans may be `true`.
+
+- `protected_branches: true` — only branches that have at least one ruleset / branch-protection rule may deploy.
+- `custom_branch_policies: true` — only refs matching one of the patterns in the sibling `branch_policies:` list may deploy. Patterns use GitHub's branch-pattern syntax (e.g. `release/stage/*`, `main`).
+
+A precondition on the resource fails the plan if both are `true`.
+
+**Recommendation**: this is the **primary deployment gate available on every plan**. On Free private repos especially, lean on `deployment_branch_policy` to restrict which refs trigger which environments, since reviewer / wait-timer / admin-bypass enforcement are paid features.
+
+### 16.7 Free-plan billing limits on private repos
+
+Summary table of what works where:
+
+| Knob | Public (any plan) | Private + Free | Private + paid |
+|---|---|---|---|
+| `wait_timer = 0` | ✓ | ✓ | ✓ |
+| `wait_timer > 0` | ✓ | ✗ silently dropped or 422 | ✓ |
+| Required reviewers | ✓ | ✗ 422 at create | ✓ |
+| `can_admins_bypass = true` | ✓ | ✓ | ✓ |
+| `can_admins_bypass = false` | ✓ | ✗ silently kept as `true` | ✓ |
+| `prevent_self_review` | only meaningful with reviewers | only meaningful with reviewers | ✓ |
+| `deployment_branch_policy.protected_branches` | ✓ | ✓ | ✓ |
+| `deployment_branch_policy.custom_branch_policies` | ✓ | ✓ | ✓ |
+| Environment variables | ✓ | ✓ | ✓ |
+| Environment secrets | ✓ | ✓ | ✓ |
+
+When in doubt, the rule for **private + Free** is: **only `wait_timer = 0`, `deployment_branch_policy`, env vars, and env secrets actually enforce**. Set `can_admins_bypass: true` and omit reviewers and non-zero wait timers. Anything else is either silently ignored or fails apply with the generic 422.
+
+The repo YAMLs in this account that fall under that constraint should reflect this directly — see `herowars-sim.yml` for an example of `can_admins_bypass: true` on every environment with a comment explaining why.
