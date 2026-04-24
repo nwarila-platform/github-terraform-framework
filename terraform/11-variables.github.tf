@@ -116,10 +116,17 @@ variable "github_security_capabilities" {
     })
   })
 
-  # Conservative default that matches GitHub Free for personal accounts:
-  # secret scanning and push protection are free on PUBLIC repos; nothing
-  # else is universally available. Operators on Team/Enterprise/GHAS
-  # plans must override this variable to declare what their plan supports.
+  # GitHub Free baseline for personal accounts and free orgs.
+  #
+  # As of January 2024, GitHub made secret_scanning and
+  # secret_scanning_push_protection free on EVERY repository visibility
+  # (https://github.blog/changelog/2024-01-30-secret-scanning-is-now-free-for-all-public-and-private-repositories/).
+  # The remaining secret-scanning extras (ai_detection, non_provider_patterns)
+  # plus advanced_security and code_security still require GHAS / a paid
+  # plan, so they stay false.
+  #
+  # Operators on Team / Enterprise / GHAS plans should override this
+  # variable to declare what their plan actually supports.
   default = {
     public = {
       advanced_security                     = false
@@ -132,16 +139,16 @@ variable "github_security_capabilities" {
     private = {
       advanced_security                     = false
       code_security                         = false
-      secret_scanning                       = false
-      secret_scanning_push_protection       = false
+      secret_scanning                       = true
+      secret_scanning_push_protection       = true
       secret_scanning_ai_detection          = false
       secret_scanning_non_provider_patterns = false
     }
     internal = {
       advanced_security                     = false
       code_security                         = false
-      secret_scanning                       = false
-      secret_scanning_push_protection       = false
+      secret_scanning                       = true
+      secret_scanning_push_protection       = true
       secret_scanning_ai_detection          = false
       secret_scanning_non_provider_patterns = false
     }
