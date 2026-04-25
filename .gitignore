@@ -148,3 +148,7 @@
 !/terraform/tests/fixtures/good-with-environments/
 !/terraform/tests/fixtures/good-with-environments/private/
 !/terraform/tests/fixtures/good-with-environments/private/repo.yml
+
+# Documentation directory (Diátaxis layout per ADR-0002).
+!/docs/
+!/docs/**
