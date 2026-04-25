@@ -33,6 +33,14 @@ The `github` provider supports two authentication modes, selected by `var.github
 
 Exactly one of `github_token` / `github_app_auth` must be set. Misconfiguration is caught by `terraform_data.framework_validation` before any resource is touched.
 
+For the **fine-grained PAT permission matrix** (which permission each managed resource requires, the GET/PUT asymmetry on environments, and the rotation procedure), see [`docs/reference/github-pat-permissions.md`](docs/reference/github-pat-permissions.md) and [`docs/how-to/setup-github-pat.md`](docs/how-to/setup-github-pat.md).
+
+## Documentation
+
+This repository follows the [Diátaxis](https://diataxis.fr) framework, adopted org-wide by [ADR-0002](https://github.com/nwarila-platform/.github/blob/main/docs/decision-records/0002-adopt-diataxis-documentation-framework.md). Long-form documentation lives under [`docs/`](docs/) split into reference, how-to, and explanation quadrants. ADRs themselves live at [`.github/docs/decision-records/`](https://github.com/nwarila-platform/.github/tree/main/docs/decision-records) per ADR-0001.
+
+Start at [`docs/README.md`](docs/README.md) for the index. The current `DESIGN.md` predates ADR-0002 and is deferred for a separate re-shelving pass.
+
 ## Security baseline
 
 The framework models GitHub security features as a **visibility-keyed capability matrix** against a **desired baseline**:
