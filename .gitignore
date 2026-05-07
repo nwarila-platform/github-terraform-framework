@@ -155,7 +155,6 @@
 
 # Documentation directory (Diátaxis layout per ADR-0002).
 !/docs/
-!/docs/**
 
 # Additions for terraform-template sync (Makefile, configs, helpers).
 !/.terraform-docs.yml
@@ -197,3 +196,14 @@
 
 # Universal config files (synced from terraform-template)
 !/.editorconfig
+
+# github-tf-specific docs
+!/docs/decision-records/org/
+!/docs/decision-records/org/0001-use-architecture-decision-records.md
+!/docs/decision-records/org/0002-adopt-diataxis-documentation-framework.md
+!/docs/decision-records/org/0003-use-deny-all-gitignore-strategy.md
+!/docs/explanation/runner-credentials.md
+!/docs/how-to/apply-aws-iam-policy.md
+!/docs/how-to/setup-github-pat.md
+!/docs/reference/aws-iam-policy.md
+!/docs/reference/github-pat-permissions.md
