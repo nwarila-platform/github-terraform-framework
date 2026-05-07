@@ -6,6 +6,7 @@
 !/.github/renovate.json
 !/.github/workflows/
 !/.github/workflows/template-sync.yaml
+!/.github/workflows/pr-validation.yaml
 !/.github/workflows/codeql.yaml
 !/.github/workflows/security.yaml
 !/.github/workflows/terraform-test.yml
