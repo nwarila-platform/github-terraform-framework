@@ -1,0 +1,24 @@
+name: Release Please
+# Caller for nwarila/terraform-template reusable-release-please workflow.
+# Renovate manages the SHA pin.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: NWarila/terraform-template/.github/workflows/reusable-release-please.yaml@bead9a47e36144999de0bfb1b476860d9fad8196

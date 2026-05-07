@@ -10,7 +10,11 @@
 !/.github/workflows/pr-validation.yaml
 !/.github/workflows/codeql.yaml
 !/.github/workflows/security.yaml
+!/.github/workflows/release-please.yaml
+!/.github/workflows/auto-merge.yaml
 !/.github/workflows/terraform-test.yml
+# Reusable workflow hosted by this framework — called by *-runner repos.
+!/.github/workflows/reusable-terraform-deploy.yaml
 
 # Keep core repo files.
 !/.gitattributes
@@ -194,6 +198,7 @@
 !/.release-please-manifest.json
 !/.github/CODEOWNERS
 !/.github/PULL_REQUEST_TEMPLATE.md
+!/.template-type
 
 # Universal config files (synced from terraform-template)
 !/.editorconfig
