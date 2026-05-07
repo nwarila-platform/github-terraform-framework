@@ -5,15 +5,10 @@
 !/.github/
 !/.github/renovate.json5
 !/.github/workflows/
-!/.github/renovate.json5
 !/.github/workflows/template-sync.yaml
-!/.github/renovate.json5
 !/.github/workflows/pr-validation.yaml
-!/.github/renovate.json5
 !/.github/workflows/codeql.yaml
-!/.github/renovate.json5
 !/.github/workflows/security.yaml
-!/.github/renovate.json5
 !/.github/workflows/terraform-test.yml
 
 # Keep core repo files.
@@ -199,3 +194,6 @@
 !/.release-please-manifest.json
 !/.github/CODEOWNERS
 !/.github/PULL_REQUEST_TEMPLATE.md
+
+# Universal config files (synced from terraform-template)
+!/.editorconfig
