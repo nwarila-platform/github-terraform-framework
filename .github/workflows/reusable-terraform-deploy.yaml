@@ -1,0 +1,272 @@
+name: Reusable Terraform Deploy
+
+# Deploys this framework against a runner repository's data. Called by the
+# `*-runner` repos under any org. The runner provides public repo definitions
+# in repos/public/, and (optionally) the workflow downloads private definitions
+# from S3, before overlaying both onto this framework's terraform/repos/ tree
+# and running terraform plan/apply.
+#
+# This reusable replaces the bespoke `terraform.yml` files that previously
+# lived in each runner repo. There is one source of truth for "how to deploy
+# github-terraform-framework"; runners only declare the variant they want.
+#
+# Caller pattern (in each runner repo):
+#   name: Deploy GitHub Terraform
+#   on:
+#     push: { branches: [main], paths: ['repos/**'] }
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#     id-token: write
+#   concurrency:
+#     group: tf-${{ github.event.repository.name }}-${{ github.ref }}
+#     cancel-in-progress: false
+#   jobs:
+#     deploy:
+#       uses: nwarila-platform/github-terraform-framework/.github/workflows/reusable-terraform-deploy.yaml@<sha>
+#       with:
+#         github_owner: nwarila-platform
+#         terraform_version: "1.14.3"
+#         private_repos_source: s3-sync       # or s3-cp or none
+#         private_repos_s3_url: s3://...      # required for s3-sync
+#       secrets:
+#         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
+#         aws_region:      ${{ secrets.AWS_REGION }}
+#         backend_bucket:  ${{ secrets.AWS_S3_BUCKET }}
+#         github_token:    ${{ secrets.FINE_GRAINED_PERSONAL_ACCESS_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      github_owner:
+        description: |
+          GitHub org/user being managed by this deploy. Forwarded to Terraform
+          as TF_VAR_github_owner.
+        required: true
+        type: string
+      terraform_version:
+        description: Exact Terraform version (e.g. "1.14.3").
+        required: true
+        type: string
+      framework_ref:
+        description: |
+          Optional ref of github-terraform-framework to deploy. Defaults to
+          this workflow's own commit (`github.sha` of the reusable). Override
+          only when bisecting; the normal flow is the runner's caller pinning
+          the reusable to a SHA, which implicitly pins the framework code too.
+        required: false
+        type: string
+        default: ""
+      private_repos_source:
+        description: |
+          How private repo definitions are fetched. One of:
+            none     — runner ships private repos in repos/private/ directly.
+            s3-sync  — sync `private_repos_s3_url` into repos/private/ at
+                       deploy time. Picks up new YAMLs without code changes.
+            s3-cp    — copy specific files listed in `private_repos_files`.
+                       Use when bucket layout has unrelated objects.
+        required: false
+        type: string
+        default: none
+      private_repos_s3_url:
+        description: |
+          (private_repos_source=s3-sync) S3 prefix to sync, e.g.
+          s3://bucket/org/repo/repos. The workflow `aws s3 sync`s into the
+          runner's repos/private/, including only *.yml/*.yaml files.
+        required: false
+        type: string
+        default: ""
+      private_repos_files:
+        description: |
+          (private_repos_source=s3-cp) Newline-separated list of `<src>=><dst>`
+          entries. `<src>` is the full S3 URL of the source file; `<dst>` is
+          the destination path under the runner's repos/private/.
+          Example:
+            s3://bucket/foo/Personal.yml=>Personal.yml
+            s3://bucket/foo/Resume.yml=>Resume.yml
+        required: false
+        type: string
+        default: ""
+    secrets:
+      aws_role_arn:
+        description: ARN of the AWS role to assume via OIDC.
+        required: true
+      aws_region:
+        description: AWS region for the S3 backend and any data plane calls.
+        required: true
+      backend_bucket:
+        description: S3 bucket holding terraform state.
+        required: true
+      github_token:
+        description: GitHub token forwarded to Terraform as TF_VAR_github_token.
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TF_VAR_github_owner: ${{ inputs.github_owner }}
+      TF_VAR_github_token: ${{ secrets.github_token }}
+    steps:
+      - name: Validate private-repos inputs
+        env:
+          PRIVATE_SOURCE: ${{ inputs.private_repos_source }}
+          PRIVATE_S3_URL: ${{ inputs.private_repos_s3_url }}
+          PRIVATE_FILES: ${{ inputs.private_repos_files }}
+        run: |
+          set -euo pipefail
+          case "${PRIVATE_SOURCE}" in
+            none)
+              ;;
+            s3-sync)
+              if [ -z "${PRIVATE_S3_URL}" ]; then
+                echo "::error::private_repos_source=s3-sync requires private_repos_s3_url"
+                exit 1
+              fi
+              ;;
+            s3-cp)
+              if [ -z "${PRIVATE_FILES}" ]; then
+                echo "::error::private_repos_source=s3-cp requires private_repos_files"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::private_repos_source must be one of: none, s3-sync, s3-cp (got '${PRIVATE_SOURCE}')"
+              exit 1
+              ;;
+          esac
+
+      - name: Initialize temporary AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          role-to-assume: ${{ secrets.aws_role_arn }}
+          aws-region: ${{ secrets.aws_region }}
+          mask-aws-account-id: true
+
+      - name: Check out runner (caller) repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: runner
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out github-terraform-framework
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: nwarila-platform/github-terraform-framework
+          ref: ${{ inputs.framework_ref || github.sha }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch private repo definitions (s3-sync)
+        if: inputs.private_repos_source == 's3-sync'
+        env:
+          PRIVATE_S3_URL: ${{ inputs.private_repos_s3_url }}
+        run: |
+          set -euo pipefail
+          dest="runner/repos/private"
+          mkdir -p "${dest}"
+          # Restrict to *.yml/*.yaml objects so unrelated S3 contents are
+          # ignored. --only-show-errors keeps the log clean while still
+          # surfacing real failures.
+          aws s3 sync "${PRIVATE_S3_URL}/" "${dest}/" \
+            --exclude "*" \
+            --include "*.yml" \
+            --include "*.yaml" \
+            --only-show-errors
+          count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
+          echo "downloaded ${count} private repo definition(s)"
+
+      - name: Fetch private repo definitions (s3-cp)
+        if: inputs.private_repos_source == 's3-cp'
+        env:
+          PRIVATE_FILES: ${{ inputs.private_repos_files }}
+        run: |
+          set -euo pipefail
+          dest="runner/repos/private"
+          mkdir -p "${dest}"
+          # Newline-separated `src=>dst` pairs; blank lines and `#` comments
+          # are ignored.
+          while IFS= read -r line; do
+            entry="${line%%#*}"
+            entry="$(echo "${entry}" | xargs)"
+            [ -z "${entry}" ] && continue
+            if [[ "${entry}" != *"=>"* ]]; then
+              echo "::error::private_repos_files entry missing '=>': ${entry}"
+              exit 1
+            fi
+            src="${entry%%=>*}"
+            dst_name="${entry##*=>}"
+            src="$(echo "${src}" | xargs)"
+            dst_name="$(echo "${dst_name}" | xargs)"
+            aws s3 cp "${src}" "${dest}/${dst_name}" --only-show-errors
+          done <<< "${PRIVATE_FILES}"
+
+      - name: Assemble framework workspace (overlay runner repos/)
+        run: |
+          set -euo pipefail
+          # Trailing /. ensures dotfiles are included; mkdir -p so target
+          # directories exist even when the runner ships only one of the two.
+          mkdir -p framework/terraform/repos/public framework/terraform/repos/private
+          if [ -d runner/repos/public ] && compgen -G "runner/repos/public/*" > /dev/null; then
+            cp -a runner/repos/public/. framework/terraform/repos/public/
+          fi
+          if [ -d runner/repos/private ] && compgen -G "runner/repos/private/*" > /dev/null; then
+            cp -a runner/repos/private/. framework/terraform/repos/private/
+          fi
+          echo "public:  $(find framework/terraform/repos/public  -maxdepth 1 -type f | wc -l) file(s)"
+          echo "private: $(find framework/terraform/repos/private -maxdepth 1 -type f | wc -l) file(s)"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: framework/terraform
+        env:
+          BACKEND_BUCKET: ${{ secrets.backend_bucket }}
+          AWS_REGION: ${{ secrets.aws_region }}
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config="bucket=${BACKEND_BUCKET}" \
+            -backend-config="encrypt=true" \
+            -backend-config="key=${TF_VAR_github_owner}/${GITHUB_REPOSITORY##*/}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Terraform validate
+        working-directory: framework/terraform
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: framework/terraform
+        run: |
+          terraform plan -out=tfplan
+          terraform show -no-color tfplan > plan-output.txt
+
+      - name: Archive plan output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: terraform-plan-${{ github.sha }}
+          path: framework/terraform/plan-output.txt
+          retention-days: 90
+
+      - name: Terraform apply
+        working-directory: framework/terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -f framework/terraform/tfplan
+          rm -rf runner framework
