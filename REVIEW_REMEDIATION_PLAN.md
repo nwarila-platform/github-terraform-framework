@@ -976,6 +976,7 @@ Context from prior review: this repo declares both a `backend "s3"` block and `p
 Finding 8 (GitHub App auth) adds more logic to the `provider "github"` block. If this repo is ultimately a reusable module, that provider block should not exist here at all — the runner owns provider configuration. Implementing Finding 8 in this repo would be wasted work and would actively make it harder to convert to a pure module later.
 
 **Required resolution before Phase 4:** declare in this document whether the framework is (a) a root module that the runner invokes via `terraform apply` with backend/var files, or (b) a reusable child module that the runner wraps with its own `providers.tf`. Then either:
+
 - (a) keep Finding 8 here and also fix the backend config (unconfigured `backend "s3"` was a prior critical finding), or
 - (b) move Finding 8 to the runner repo and strip `backend` + `provider` blocks from this framework.
 
@@ -1033,6 +1034,7 @@ The current code has at least one concrete defect the plan should call out by na
 `has_seed_content = auto_init || fork || template != null` is correct at **repo creation** time but misleading afterward. An existing repo that was bootstrapped with `auto_init = true` a year ago, then had `auto_init` flipped to `false` in YAML (harmless — it's ignored post-creation), would now fail the seed-content precondition for no real reason.
 
 **Requested amendment:** either
+
 - (a) Scope the seed-content check to "repos not yet in state" via a data-source existence lookup, or
 - (b) Reframe the check as "at least one of these was once true" and document that flipping them later is a no-op, or
 - (c) Introduce an explicit `manage_branches` per-repo toggle (default true) that operators disable for repos where they know the framework shouldn't touch branches.

@@ -109,6 +109,7 @@ This framework manages GitHub repositories as **code** — every setting is decl
 4. **Convention over configuration**: Repos should only specify what makes them *different*. Everything else inherits from battle-tested defaults.
 
 **Governing References**:
+
 - [GitHub Security Best Practices](https://docs.github.com/en/code-security/getting-started/quickstart-for-securing-your-repository) — GitHub's own security quickstart
 - [GitHub Repository Rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) — GitHub's recommended successor to branch protection rules
 - [OpenSSF Scorecard](https://securityscorecards.dev/) — Automated security health checks for open source projects
@@ -149,6 +150,7 @@ The description appears in search results, profile pages, GitHub Explore, and so
 **Recommendation**: Required for all public repos. Should be a single sentence (under 350 characters) that answers "what does this do and why would someone care?" Avoid marketing language; be specific and technical.
 
 **Quality Criteria**:
+
 - Starts with a noun or action (not "This repo..." or "A tool that...")
 - Mentions the primary technology stack
 - Differentiates from similar repos in the account
@@ -178,12 +180,14 @@ The default is `private` — repos must explicitly opt into public visibility. T
 Topics power GitHub's search and discovery. GitHub allows up to 20 topics per repository. Topics must be lowercase, hyphenated, and under 50 characters.
 
 **Recommendation**: Every public repo should have 5-15 well-chosen topics. Topics should include:
+
 1. **Primary technology** (e.g., `terraform`, `ansible`, `packer`)
 2. **Domain** (e.g., `infrastructure-as-code`, `security`, `compliance`)
 3. **Platform** (e.g., `aws`, `proxmox`, `linux`)
 4. **Methodology** (e.g., `devsecops`, `ci-cd`, `gitops`)
 
 **Quality Criteria**:
+
 - Use established community topics (check GitHub's [topic pages](https://github.com/topics))
 - Topics must accurately describe the repo content — not aspirational
 - Remove generic filler topics that don't aid discovery
@@ -284,6 +288,7 @@ The merge strategy is one of the most opinionated and impactful configuration ar
 Squash merging combines all commits from a feature branch into a single commit on the target branch.
 
 **Recommendation**: `true` — this is the **only** merge method enabled by default. Squash merging produces:
+
 - **One commit per feature/fix** on the default branch — clean, scannable history
 - **Atomic reverts** — any change can be reverted with a single `git revert`
 - **Clean `git bisect`** — every commit on `main` is a complete, working state
@@ -362,6 +367,7 @@ These settings configure merge commit formatting. Since `allow_merge_commit = fa
 Automatically deletes the head branch after a PR is merged.
 
 **Recommendation**: `true`. Stale branches are technical debt. Automatic cleanup:
+
 - Prevents the "200 branches" problem
 - Removes confusion about which branches are active
 - Keeps the branch namespace clean for `git fetch --prune`
@@ -443,6 +449,7 @@ Creates an initial commit with a `README.md` when the repository is created.
 The license applied to the repository on creation.
 
 **Recommendation**: `"mit"` for all public repos. The MIT License is:
+
 - The most popular open-source license on GitHub (~44% of licensed repos)
 - Maximally permissive — allows commercial use, modification, and distribution
 - Simple and well-understood by legal teams
@@ -620,6 +627,7 @@ GitHub Pages hosts static websites directly from a repository. Configuration inc
 - **`cname`**: Custom domain (optional).
 
 **Recommendation**: Only enable for repos that genuinely serve a website (documentation sites, project landing pages). Currently only `proxmox-terraform-framework` uses Pages. The `workflow` build type is preferred over `legacy` because it:
+
 - Supports any static site generator (not just Jekyll)
 - Provides CI/CD visibility in the Actions tab
 - Allows custom build steps and validation
@@ -719,6 +727,7 @@ Prevents force pushes to the default branch. Force pushing rewrites history, des
 Requires a linear commit history on the default branch (no merge commits).
 
 **Recommendation**: `true`. Combined with squash-only merging, this guarantees the default branch is a clean, linear sequence of atomic changes. Benefits:
+
 - `git log --oneline` reads as a changelog
 - `git bisect` works optimally (no merge nodes to confuse the binary search)
 - Every commit on `main` represents a complete, tested state
@@ -733,6 +742,7 @@ Requires a linear commit history on the default branch (no merge commits).
 Requires all commits on the default branch to have verified GPG, SSH, or S/MIME signatures.
 
 **Recommendation**: `true`. Commit signing provides:
+
 - **Non-repudiation**: Proves who actually authored a commit (git's `author` field is trivially forgeable)
 - **Tamper detection**: Signed commits cannot be modified without invalidating the signature
 - **Supply chain security**: Part of SLSA Level 2+ requirements
@@ -883,6 +893,7 @@ bypass_actors:
 **Actor ID `5`** = Repository Admin role. This is essential for a solo developer account — without it, no one could merge PRs (since you can't approve your own PR) and no one could perform emergency tag remediation. The bypass is scoped to the Pull Request Gate and Release Tag Protection; the Default Branch Protection ruleset has **no bypass actors**, meaning even admins cannot force-push or delete the default branch.
 
 **Available Actor IDs**:
+
 | ID | Role |
 |----|------|
 | 1 | Organization Admin |
@@ -891,6 +902,7 @@ bypass_actors:
 | 5 | Admin |
 
 **Bypass Modes**:
+
 - `always`: Can bypass for both direct pushes and PR merges
 - `pull_request`: Can only bypass during PR merges
 - `exempt`: Exempt from the rule entirely
@@ -907,6 +919,7 @@ conditions:
 ```
 
 `~DEFAULT_BRANCH` is a GitHub magic ref that always resolves to whatever the repo's default branch is (typically `main`). This is preferred over hardcoding `refs/heads/main` because:
+
 - It automatically adapts if the default branch is renamed
 - It works across repos that may use different default branch names
 - `~ALL` is available to protect all branches, but would be overly restrictive
@@ -1038,12 +1051,14 @@ This section covers security controls for the Terraform framework itself — the
 This repository uses a **deny-all** `.gitignore` strategy: everything is ignored by default (`**`), and only explicitly allowlisted files are tracked. This prevents accidental commits of sensitive files (`.env`, state files, credentials) or build artifacts.
 
 **Critical allowlist rules**:
+
 - `!/terraform/repos/*.yml` and `!/terraform/repos/*.yaml` — Repository definition files (the framework's primary input).
 - `!/terraform/*.tf` — Terraform configuration files.
 - `!/DESIGN.md` — This governing design document.
 - Standard repo files (`LICENSE`, `README.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`).
 
 **Explicitly excluded** (not in allowlist):
+
 - `.env` — Contains the GitHub Personal Access Token. Must never be committed.
 - `terraform.tfstate` / `terraform.tfstate.backup` — State files contain sensitive data in plaintext (API tokens, resource metadata).
 - `terraform.tfvars` — Intentionally excluded to prevent accidental credential commits. Sensitive variables must be provided via environment variables or `.env`. Only `terraform.auto.tfvars` is allowlisted for non-sensitive configuration overrides.
@@ -1077,12 +1092,14 @@ Terraform state files contain the full configuration of all managed resources, i
 **Current state**: Local backend (file-based).
 
 **Security implications of local state**:
+
 - No encryption at rest (state file is plaintext on disk)
 - No state locking (risk of concurrent modification in CI/CD)
 - No access control beyond filesystem permissions
 - State contains the GitHub PAT in plaintext after `terraform apply`
 
 **Recommended remediation**: Enable the S3 backend with:
+
 - Server-side encryption (SSE-S3 or SSE-KMS)
 - State locking via S3-native locking (DynamoDB is no longer required with S3's native lock support)
 - Bucket policy restricting access to the CI/CD IAM role
@@ -1162,6 +1179,7 @@ Controls whether repository admins can bypass the environment's protection rules
 **Critical caveat for private + Free**: setting `can_admins_bypass: false` on a private repo on Free **does not error and does not take effect**. The GitHub API accepts the create with `false`, but the resulting environment reports `can_admins_bypass: true`. Terraform's next refresh sees the drift and proposes to flip it back to `false`, and the next apply 422s on the billing rule.
 
 **Recommendation**:
+
 - Public repos: set the value you actually want; both work.
 - Private repos on a paid plan: set the value you actually want; both work.
 - **Private repos on Free: always set `can_admins_bypass: true`** to match the value GitHub will hold regardless of what you ask for. Anything else creates permanent drift.
@@ -1191,6 +1209,7 @@ Required reviewers force a named user or team to approve a deployment before the
 This is the single biggest paid-plan feature on environments. On private repos on Free, declaring `reviewers:` with any users or teams returns a 422 "Failed to create the environment protection rule" at apply time, and the environment is not created.
 
 **Recommendation**:
+
 - Public repos: use as needed.
 - Private repos on a paid plan: use as needed.
 - **Private repos on Free: omit `reviewers:` entirely**. Use deployment branch policies and/or `wait_timer: 0` (omit) gates instead. Reviewer enforcement on a solo-maintainer private repo is theatre regardless of plan, since the only person who could approve is the same one who dispatches.
