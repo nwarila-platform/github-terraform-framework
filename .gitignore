@@ -168,4 +168,5 @@
 !/.pre-commit-config.yaml
 !/.markdownlint-cli2.jsonc
 !/Makefile
+!/tools/
 !/tools/check_docs_layout.py
