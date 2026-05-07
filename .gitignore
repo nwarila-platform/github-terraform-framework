@@ -5,6 +5,7 @@
 !/.github/
 !/.github/renovate.json
 !/.github/workflows/
+!/.github/workflows/template-sync.yaml
 !/.github/workflows/terraform-test.yml
 
 # Keep core repo files.
