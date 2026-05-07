@@ -154,3 +154,11 @@
 # Documentation directory (Diátaxis layout per ADR-0002).
 !/docs/
 !/docs/**
+
+# Additions for terraform-template sync (Makefile, configs, helpers).
+!/.terraform-docs.yml
+!/.tflint.hcl
+!/.pre-commit-config.yaml
+!/.markdownlint-cli2.jsonc
+!/Makefile
+!/tools/check_docs_layout.py
