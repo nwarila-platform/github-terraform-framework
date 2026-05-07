@@ -3,11 +3,19 @@ terraform {
   required_version = "= 1.15.1"
 
   required_providers {
-    # Add provider blocks here. Each must use exact `=` pinning.
-    # Example:
-    #   proxmox = {
-    #     source  = "bpg/proxmox"
-    #     version = "= 0.50.0"
-    #   }
+    github = {
+      source  = "integrations/github"
+      version = "= 6.10.2"
+    }
+
+    aws = {
+      source  = "hashicorp/aws"
+      version = "= 6.28.0"
+    }
+
+    time = {
+      source  = "hashicorp/time"
+      version = "= 0.12.1"
+    }
   }
 }
