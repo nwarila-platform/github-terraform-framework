@@ -1,12 +1,10 @@
 #% ========================================================================================== %#
 #% = File: 00-providers.tf                                      | Category: Providers (00-09) %#
 #% ----- [ Description ] -------------------------------------------------------------------- %#
+#% Backend declaration. Terraform required_version and required_providers live in versions.tf
+#% per the golden template contract.
 #% ========================================================================================== %#
 terraform {
-
-  // Declare minimum Terraform version.
-  required_version = "1.14.3"
-
   backend "s3" {
     encrypt                     = true
     insecure                    = false
@@ -14,24 +12,4 @@ terraform {
     use_fips_endpoint           = true
     use_lockfile                = true
   }
-
-  required_providers {
-
-    github = {
-      source  = "integrations/github"
-      version = "6.10.2"
-    }
-
-    aws = {
-      source  = "hashicorp/aws"
-      version = "6.28.0"
-    }
-
-    time = {
-      source  = "hashicorp/time"
-      version = "0.12.1"
-    }
-
-  }
-
 }
