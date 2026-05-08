@@ -48,7 +48,7 @@ name: Reusable Terraform Deploy
 #         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
 #         aws_region:      ${{ secrets.AWS_REGION }}
 #         backend_bucket:  ${{ secrets.AWS_S3_BUCKET }}
-#         github_token:    ${{ secrets.FINE_GRAINED_PERSONAL_ACCESS_TOKEN }}
+#         gh_token:    ${{ secrets.FINE_GRAINED_PERSONAL_ACCESS_TOKEN }}
 
 on:
   workflow_call:
@@ -102,7 +102,7 @@ on:
       backend_bucket:
         description: S3 bucket holding terraform state.
         required: true
-      github_token:
+      gh_token:
         description: GitHub token forwarded to Terraform as TF_VAR_github_token.
         required: true
 
@@ -117,7 +117,10 @@ jobs:
     timeout-minutes: 30
     env:
       TF_VAR_github_owner: ${{ inputs.github_owner }}
-      TF_VAR_github_token: ${{ secrets.github_token }}
+      # gh_token (input name avoids the reserved `github_token`) is forwarded
+      # to Terraform as TF_VAR_github_token so the framework's variable
+      # surface stays unchanged.
+      TF_VAR_github_token: ${{ secrets.gh_token }}
     steps:
       - name: Initialize temporary AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
