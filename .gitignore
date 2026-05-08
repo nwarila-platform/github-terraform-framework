@@ -14,7 +14,6 @@
 !/.github/workflows/auto-merge.yaml
 !/.github/workflows/release-evidence.yaml
 !/.github/workflows/org-adr-sync.yaml
-!/.github/workflows/terraform-test.yml
 # Reusable workflow hosted by this framework — called by *-runner repos.
 !/.github/workflows/reusable-terraform-deploy.yaml
 
