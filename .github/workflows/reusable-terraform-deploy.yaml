@@ -1,14 +1,30 @@
 name: Reusable Terraform Deploy
 
 # Deploys this framework against a runner repository's data. Called by the
-# `*-runner` repos under any org. The runner provides public repo definitions
-# in repos/public/, and (optionally) the workflow downloads private definitions
-# from S3, before overlaying both onto this framework's terraform/repos/ tree
-# and running terraform plan/apply.
+# `*-runner` repos under any org.
 #
-# This reusable replaces the bespoke `terraform.yml` files that previously
-# lived in each runner repo. There is one source of truth for "how to deploy
-# github-terraform-framework"; runners only declare the variant they want.
+# Deploy flow
+# -----------
+# 1. Optionally downloads private repo definitions from S3 via `aws s3 cp`,
+#    one file per name listed in `private_repos_files`. Files are copied
+#    INTO the runner's `repos/private/` directory (additive — pre-existing
+#    files in that directory are preserved).
+# 2. Overlays the runner's `repos/public/` and `repos/private/` (now
+#    containing both committed files and any S3-fetched files) onto the
+#    framework's `terraform/repos/{public,private}/` tree.
+# 3. Runs terraform init/plan/apply against the assembled tree.
+#
+# S3 layout convention
+# --------------------
+# Private files come from:
+#
+#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/repos/<filename>
+#
+# `<owner-lowercased>` = `${{ github.repository_owner }}` lowercased (so
+# `NWarila` → `nwarila`, `the-hero-wars-guys` → unchanged, etc.). This
+# convention matches the layout all three runner repos use today; consumers
+# that need a different layout can override via the `private_repos_prefix`
+# input.
 #
 # Caller pattern (in each runner repo):
 #   name: Deploy GitHub Terraform
@@ -25,10 +41,9 @@ name: Reusable Terraform Deploy
 #     deploy:
 #       uses: nwarila-platform/github-terraform-framework/.github/workflows/reusable-terraform-deploy.yaml@<sha>
 #       with:
-#         github_owner: nwarila-platform
-#         terraform_version: "1.14.3"
-#         private_repos_source: s3-sync       # or s3-cp or none
-#         private_repos_s3_url: s3://...      # required for s3-sync
+#         github_owner: ${{ github.repository_owner }}
+#         terraform_version: "1.15.1"
+#         private_repos_files: ${{ vars.PRIVATE_REPOS_FILES }}
 #       secrets:
 #         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
 #         aws_region:      ${{ secrets.AWS_REGION }}
@@ -45,45 +60,35 @@ on:
         required: true
         type: string
       terraform_version:
-        description: Exact Terraform version (e.g. "1.14.3").
+        description: Exact Terraform version (e.g. "1.15.1").
         required: true
         type: string
       framework_ref:
         description: |
           Optional ref of github-terraform-framework to deploy. Defaults to
-          this workflow's own commit (`github.sha` of the reusable). Override
-          only when bisecting; the normal flow is the runner's caller pinning
-          the reusable to a SHA, which implicitly pins the framework code too.
-        required: false
-        type: string
-        default: ""
-      private_repos_source:
-        description: |
-          How private repo definitions are fetched. One of:
-            none     — runner ships private repos in repos/private/ directly.
-            s3-sync  — sync `private_repos_s3_url` into repos/private/ at
-                       deploy time. Picks up new YAMLs without code changes.
-            s3-cp    — copy specific files listed in `private_repos_files`.
-                       Use when bucket layout has unrelated objects.
-        required: false
-        type: string
-        default: none
-      private_repos_s3_url:
-        description: |
-          (private_repos_source=s3-sync) S3 prefix to sync, e.g.
-          s3://bucket/org/repo/repos. The workflow `aws s3 sync`s into the
-          runner's repos/private/, including only *.yml/*.yaml files.
+          this workflow's own commit (`github.sha` of the reusable).
         required: false
         type: string
         default: ""
       private_repos_files:
         description: |
-          (private_repos_source=s3-cp) Newline-separated list of `<src>=><dst>`
-          entries. `<src>` is the full S3 URL of the source file; `<dst>` is
-          the destination path under the runner's repos/private/.
-          Example:
-            s3://bucket/foo/Personal.yml=>Personal.yml
-            s3://bucket/foo/Resume.yml=>Resume.yml
+          Newline-separated list of private-repo definition filenames to
+          download from S3 before deploy. Each line is a bare filename
+          (e.g. `Personal.yml`); the reusable constructs the full S3 URL
+          via the convention `s3://<aws_s3_bucket>/<owner-lc>/<repo>/repos/`.
+          Blank lines and `#`-prefixed comments are ignored. Empty input
+          (or input set to just whitespace) skips the S3 step entirely —
+          the runner's committed `repos/private/` is still overlaid onto
+          the framework.
+        required: false
+        type: string
+        default: ""
+      private_repos_prefix:
+        description: |
+          Override the S3 prefix from which private files are copied.
+          Defaults to `<owner-lowercased>/<repo>/repos`. The bucket is
+          always `secrets.aws_s3_bucket`. Override only for non-standard
+          layouts.
         required: false
         type: string
         default: ""
@@ -114,34 +119,6 @@ jobs:
       TF_VAR_github_owner: ${{ inputs.github_owner }}
       TF_VAR_github_token: ${{ secrets.github_token }}
     steps:
-      - name: Validate private-repos inputs
-        env:
-          PRIVATE_SOURCE: ${{ inputs.private_repos_source }}
-          PRIVATE_S3_URL: ${{ inputs.private_repos_s3_url }}
-          PRIVATE_FILES: ${{ inputs.private_repos_files }}
-        run: |
-          set -euo pipefail
-          case "${PRIVATE_SOURCE}" in
-            none)
-              ;;
-            s3-sync)
-              if [ -z "${PRIVATE_S3_URL}" ]; then
-                echo "::error::private_repos_source=s3-sync requires private_repos_s3_url"
-                exit 1
-              fi
-              ;;
-            s3-cp)
-              if [ -z "${PRIVATE_FILES}" ]; then
-                echo "::error::private_repos_source=s3-cp requires private_repos_files"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "::error::private_repos_source must be one of: none, s3-sync, s3-cp (got '${PRIVATE_SOURCE}')"
-              exit 1
-              ;;
-          esac
-
       - name: Initialize temporary AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
@@ -165,55 +142,53 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Fetch private repo definitions (s3-sync)
-        if: inputs.private_repos_source == 's3-sync'
-        env:
-          PRIVATE_S3_URL: ${{ inputs.private_repos_s3_url }}
-        run: |
-          set -euo pipefail
-          dest="runner/repos/private"
-          mkdir -p "${dest}"
-          # Restrict to *.yml/*.yaml objects so unrelated S3 contents are
-          # ignored. --only-show-errors keeps the log clean while still
-          # surfacing real failures.
-          aws s3 sync "${PRIVATE_S3_URL}/" "${dest}/" \
-            --exclude "*" \
-            --include "*.yml" \
-            --include "*.yaml" \
-            --only-show-errors
-          count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
-          echo "downloaded ${count} private repo definition(s)"
-
-      - name: Fetch private repo definitions (s3-cp)
-        if: inputs.private_repos_source == 's3-cp'
+      - name: Fetch private repo definitions from S3
         env:
           PRIVATE_FILES: ${{ inputs.private_repos_files }}
+          PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
+          BUCKET: ${{ secrets.backend_bucket }}
         run: |
           set -euo pipefail
+          # Trim and check whether any non-blank, non-comment lines exist.
+          stripped="$(printf '%s\n' "${PRIVATE_FILES}" | sed 's/#.*//' | tr -d '[:space:]')"
+          if [ -z "${stripped}" ]; then
+            echo "private_repos_files is empty; skipping S3 fetch."
+            exit 0
+          fi
+
+          # Resolve the S3 prefix.
+          if [ -n "${PRIVATE_PREFIX_OVERRIDE}" ]; then
+            prefix="${PRIVATE_PREFIX_OVERRIDE}"
+          else
+            owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+            repo_name="${GITHUB_REPOSITORY##*/}"
+            prefix="${owner_lc}/${repo_name}/repos"
+          fi
+          echo "S3 prefix: s3://${BUCKET}/${prefix}/"
+
           dest="runner/repos/private"
           mkdir -p "${dest}"
-          # Newline-separated `src=>dst` pairs; blank lines and `#` comments
-          # are ignored.
+
+          # Download each file. The cp is additive — we never delete files
+          # already present in the directory (e.g. files committed by the
+          # runner repo itself remain).
           while IFS= read -r line; do
             entry="${line%%#*}"
             entry="$(echo "${entry}" | xargs)"
             [ -z "${entry}" ] && continue
-            if [[ "${entry}" != *"=>"* ]]; then
-              echo "::error::private_repos_files entry missing '=>': ${entry}"
-              exit 1
-            fi
-            src="${entry%%=>*}"
-            dst_name="${entry##*=>}"
-            src="$(echo "${src}" | xargs)"
-            dst_name="$(echo "${dst_name}" | xargs)"
-            aws s3 cp "${src}" "${dest}/${dst_name}" --only-show-errors
+            aws s3 cp \
+              "s3://${BUCKET}/${prefix}/${entry}" \
+              "${dest}/${entry}" \
+              --only-show-errors
+            echo "fetched ${entry}"
           done <<< "${PRIVATE_FILES}"
+
+          count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
+          echo "private/ now contains ${count} file(s) total (S3-fetched + committed)"
 
       - name: Assemble framework workspace (overlay runner repos/)
         run: |
           set -euo pipefail
-          # Trailing /. ensures dotfiles are included; mkdir -p so target
-          # directories exist even when the runner ships only one of the two.
           mkdir -p framework/terraform/repos/public framework/terraform/repos/private
           if [ -d runner/repos/public ] && compgen -G "runner/repos/public/*" > /dev/null; then
             cp -a runner/repos/public/. framework/terraform/repos/public/
