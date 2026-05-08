@@ -209,6 +209,8 @@
 !/docs/decision-records/org/0001-use-architecture-decision-records.md
 !/docs/decision-records/org/0002-adopt-diataxis-documentation-framework.md
 !/docs/decision-records/org/0003-use-deny-all-gitignore-strategy.md
+!/docs/decision-records/org/0004-use-renovate-for-dependency-updates.md
+!/docs/decision-records/org/0005-pin-terraform-and-provider-versions-exactly.md
 !/docs/explanation/runner-credentials.md
 !/docs/how-to/apply-aws-iam-policy.md
 !/docs/how-to/setup-github-pat.md
