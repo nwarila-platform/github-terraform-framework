@@ -1,6 +1,8 @@
 name: Release Please
 # Caller for nwarila/terraform-template reusable-release-please workflow.
-# Renovate manages the SHA pin.
+# Renovate manages the SHA pin. Per-repo follow-on dispatch is configured
+# via the RELEASE_DISPATCH_WORKFLOW repo variable; leave unset for no
+# dispatch.
 
 on:
   push:
@@ -22,3 +24,5 @@ jobs:
       issues: write
       actions: write
     uses: NWarila/terraform-template/.github/workflows/reusable-release-please.yaml@bead9a47e36144999de0bfb1b476860d9fad8196
+    with:
+      dispatch_workflow_on_release: ${{ vars.RELEASE_DISPATCH_WORKFLOW }}
