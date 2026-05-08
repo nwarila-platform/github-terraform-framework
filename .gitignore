@@ -11,6 +11,7 @@
 !/.github/workflows/codeql.yaml
 !/.github/workflows/security.yaml
 !/.github/workflows/terraform-test.yml
+!/.github/workflows/drift-gate.yaml
 
 # Keep core repo files.
 !/.gitattributes
