@@ -215,10 +215,15 @@ jobs:
           AWS_REGION: ${{ secrets.aws_region }}
         run: |
           set -euo pipefail
+          # Lowercase the owner to match the historical state-key convention
+          # (NWarila -> nwarila). Same lowercasing convention the private-repo
+          # S3 prefix uses.
+          owner_lc="$(printf '%s' "${TF_VAR_github_owner}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY##*/}"
           terraform init \
             -backend-config="bucket=${BACKEND_BUCKET}" \
             -backend-config="encrypt=true" \
-            -backend-config="key=${TF_VAR_github_owner}/${GITHUB_REPOSITORY##*/}/terraform.tfstate" \
+            -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
       - name: Terraform validate
