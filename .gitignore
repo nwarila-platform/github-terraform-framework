@@ -175,18 +175,27 @@
 !/terraform/versions.tf
 !/terraform/tests/.gitkeep
 !/docs/README.md
+!/docs/tutorials/
+!/docs/tutorials/.gitkeep
 !/docs/explanation/
+!/docs/explanation/.gitkeep
 !/docs/explanation/architecture.md
 !/docs/explanation/testing-strategy.md
 !/docs/explanation/threat-model.md
 !/docs/reference/
+!/docs/reference/.gitkeep
 !/docs/reference/terraform.md
 !/docs/reference/release-gates.md
 !/docs/reference/invariants.md
 !/docs/how-to/
+!/docs/how-to/.gitkeep
 !/docs/how-to/develop-this-module.md
 !/docs/decision-records/
 !/docs/decision-records/README.md
+!/docs/decision-records/template/
+!/docs/decision-records/template/.gitkeep
+!/docs/decision-records/repo/
+!/docs/decision-records/repo/.gitkeep
 !/policies/
 !/policies/opa/
 !/policies/opa/.gitkeep
@@ -201,6 +210,7 @@
 
 # github-tf-specific docs
 !/docs/decision-records/org/
+!/docs/decision-records/org/.gitkeep
 !/docs/decision-records/org/0001-use-architecture-decision-records.md
 !/docs/decision-records/org/0002-adopt-diataxis-documentation-framework.md
 !/docs/decision-records/org/0003-use-deny-all-gitignore-strategy.md
