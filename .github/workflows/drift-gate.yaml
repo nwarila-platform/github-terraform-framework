@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Drift gate (org baseline)
         # renovate: datasource=github-tags depName=NWarila/drift-gate
-        uses: NWarila/drift-gate@973c3a9e4cee3000118e39a0cc9014eb6f4972a1 # main @ 2026-05-08
+        uses: NWarila/drift-gate@d835ae411f1e55e25b2b6c079d5891e7345a043c # main @ 2026-05-09
         with:
           source-repo: nwarila-platform/.github
           source-ref: f4dbbf97c5f11b96b9db167242955c51ad847391 # main @ 2026-05-08
