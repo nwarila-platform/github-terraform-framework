@@ -1,0 +1,40 @@
+name: Drift Gate
+
+# Verifies that this consumer's mirrored copies of the org-baseline files
+# (currently the org ADRs under docs/decision-records/org/) are byte-
+# identical to nwarila-platform/.github at a SHA-pinned revision. Fails
+# the PR when they drift, with per-file annotations on the offending
+# files in the "Files changed" view.
+#
+# This is a consumer-side workflow. Once the org repository ruleset is
+# configured (admin:org), the same gate will be injected into every PR
+# in every repo under nwarila-platform automatically and this file can
+# be deleted in favor of that path.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: drift-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  org-baseline:
+    name: org-baseline / verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Drift gate (org baseline)
+        # renovate: datasource=github-tags depName=NWarila/drift-gate
+        uses: NWarila/drift-gate@d835ae411f1e55e25b2b6c079d5891e7345a043c # main @ 2026-05-09
+        with:
+          source-repo: nwarila-platform/.github
+          source-ref: 4c905cd6bef20d1aae7891c4a93e07a375cb4d7f # main @ 2026-05-09
+          manifest: baseline-manifest.json
+          check-name: org-baseline / verify
