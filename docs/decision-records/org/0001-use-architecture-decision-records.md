@@ -13,7 +13,7 @@
   Where ADRs live (per ADR-0001 §"Decision Outcome"):
 
     * Org-baseline ADRs: master copy in nwarila-platform/.github at
-      docs/decision-records/NNNN-short-kebab-title.md; byte-identical
+      docs/decision-records/NNNN-short-kebab-title.md; byte-perfect
       mirror in every adopting child repository at
       docs/decision-records/org/NNNN-short-kebab-title.md.
     * Repository-specific ADRs: live only in their owning repository at
