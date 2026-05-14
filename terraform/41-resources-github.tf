@@ -153,7 +153,11 @@ resource "github_repository" "repo" {
   # check repo-scoped invariants so their errors point at the specific
   # github_repository.repo[<name>] address.
   lifecycle {
-    ignore_changes = [auto_init, license_template]
+    # `allow_forking` is an org-owned private/internal repository setting in
+    # GitHub's API. The provider may observe it during refresh, but this
+    # framework does not expose it in repo YAML and must not PATCH it for
+    # personal-account repositories.
+    ignore_changes = [auto_init, license_template, allow_forking]
 
     precondition {
       condition     = contains(["public", "private", "internal"], each.value.visibility)
