@@ -12,9 +12,9 @@ name: Reusable Terraform Deploy
 # 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
-# 3. Imports any already-existing repository resources into state before
-#    planning. This lets the framework adopt a pre-existing fleet without
-#    trying to create repos that already exist.
+# 3. Imports any already-existing repository and repository-ruleset resources
+#    into state before planning. This lets the framework adopt a pre-existing
+#    fleet without trying to create resources that already exist.
 # 4. Runs terraform init/plan/apply against the assembled tree.
 #
 # S3 layout convention
@@ -302,6 +302,110 @@ jobs:
 
             rm -f "${response}"
           done < /tmp/github-repository-names.txt
+
+      - name: Adopt existing repository rulesets into state
+        working-directory: framework/terraform
+        env:
+          GITHUB_API_VERSION: "2022-11-28"
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import ast
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.request
+
+          owner = os.environ["TF_VAR_github_owner"]
+          token = os.environ["TF_VAR_github_token"]
+          api_version = os.environ["GITHUB_API_VERSION"]
+
+          console = subprocess.run(
+              ["terraform", "-no-color", "console"],
+              input="jsonencode(local.branch_rulesets)\n",
+              text=True,
+              capture_output=True,
+              check=True,
+          )
+
+          payload = None
+          for line in reversed(console.stdout.splitlines()):
+              candidate = line.strip()
+              if candidate.startswith('"') and candidate.endswith('"'):
+                  payload = ast.literal_eval(candidate)
+                  break
+
+          if payload is None:
+              print(console.stdout, file=sys.stderr)
+              print(console.stderr, file=sys.stderr)
+              raise SystemExit("could not read local.branch_rulesets from terraform console")
+
+          desired = json.loads(payload)
+          if not desired:
+              print("No desired repository rulesets found; skipping ruleset adoption.")
+              raise SystemExit(0)
+
+          rulesets_cache = {}
+
+          def remote_rulesets(repo):
+              if repo in rulesets_cache:
+                  return rulesets_cache[repo]
+
+              url = f"https://api.github.com/repos/{owner}/{repo}/rulesets?per_page=100"
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": api_version,
+                  },
+              )
+
+              try:
+                  with urllib.request.urlopen(request) as response:
+                      data = json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      data = []
+                  else:
+                      raise
+
+              rulesets_cache[repo] = data
+              return data
+
+          for key, ruleset in sorted(desired.items()):
+              repo = ruleset["repository"]
+              name = ruleset["name"]
+              address = f'github_repository_ruleset.branch["{key}"]'
+
+              state = subprocess.run(
+                  ["terraform", "state", "show", address],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  text=True,
+              )
+              if state.returncode == 0:
+                  print(f"state already has ruleset {key}; skipping import")
+                  continue
+
+              match = next(
+                  (item for item in remote_rulesets(repo) if item.get("name") == name),
+                  None,
+              )
+              if match is None:
+                  print(f"remote ruleset {repo}/{name} does not exist; Terraform will create it")
+                  continue
+
+              import_id = f"{repo}:{match['id']}"
+              print(f"importing existing ruleset {repo}/{name} as {key}")
+              subprocess.run(
+                  ["terraform", "import", "-input=false", address, import_id],
+                  check=True,
+              )
+          PY
 
       - name: Terraform validate
         working-directory: framework/terraform
