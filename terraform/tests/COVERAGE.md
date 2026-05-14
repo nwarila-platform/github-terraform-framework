@@ -73,8 +73,9 @@ terraform test
 | G37 | Compat baseline + gap + populated preview | ✅ | `validation.tftest.hcl::compatibility_mode_tolerates_capability_gap` |
 | G38 | Compat baseline + no gap + empty preview | ✅ | `security.tftest.hcl::compatibility_mode_no_gap_plans_clean_with_empty_preview` |
 | G39 | Capability gap across multiple visibilities (counting) | ✅ | `security.tftest.hcl::strict_mode_reports_gaps_across_multiple_visibilities` |
+| G40 | Personal private repos reject explicit `security_and_analysis` | ✅ | `validation.tftest.hcl::rejects_personal_private_security_and_analysis` |
 
-**Global validation coverage: 39 / 39 ≈ 100%.**
+**Global validation coverage: 40 / 40 ≈ 100%.**
 
 ## Variable validation blocks
 
@@ -120,8 +121,9 @@ terraform test
 | N13 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
 | N14 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N15 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
+| N16 | Personal private baseline skips provider-unsafe `security_and_analysis` | ✅ | `security.tftest.hcl::personal_private_baseline_skips_security_and_analysis` |
 
-**Normalization coverage: 15 / 15 ≈ 100%.**
+**Normalization coverage: 16 / 16 ≈ 100%.**
 
 ## `for_each` filter regressions
 
@@ -159,20 +161,20 @@ terraform test
 
 | Layer | Covered | Total | % |
 |---|---|---|---|
-| Global validation | 39 | 39 | 100% |
+| Global validation | 40 | 40 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 15 | 15 | 100% |
+| Normalization paths | 16 | 16 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **81** | **81** | **100%** |
+| **Overall** | **83** | **83** | **100%** |
 
 ## Test run count and artifacts
 
 | Metric | Count |
 |---|---|
 | `.tftest.hcl` files | 4 |
-| `run` blocks total | ~55 |
+| `run` blocks total | ~57 |
 | Fixture directories | ~25 |
 | Assertions total | ~120 |
 

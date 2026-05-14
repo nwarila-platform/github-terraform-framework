@@ -503,6 +503,8 @@ run "explicit_security_and_analysis_overrides_baseline" {
   variables {
     repo_yaml_path         = "tests/fixtures/good-explicit-security-override"
     security_baseline_mode = "compatibility"
+    github_is_organization = true
+    repo_default_rules     = []
 
     # Full capabilities so the baseline would be free to turn things on.
     github_security_capabilities = {

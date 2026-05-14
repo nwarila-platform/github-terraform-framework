@@ -415,3 +415,75 @@ run "baseline_feature_enabled_when_capability_matches" {
 }
 
 #endregion --- [ Baseline feature enabled when capability matches ] -------------------------- #
+
+#region ------ [ Personal private repo skips provider-unsafe security block ] ---------------- #
+
+run "personal_private_baseline_skips_security_and_analysis" {
+  command = plan
+
+  variables {
+    repo_yaml_path         = "tests/fixtures/good-personal-synthesized-codeowners"
+    security_baseline_mode = "strict"
+
+    github_security_capabilities = {
+      public = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      private = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      internal = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+    }
+
+    security_baseline = {
+      public = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      private = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      internal = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+    }
+  }
+
+  assert {
+    condition     = output.all_repositories["good-personal-synthesized-repo"].security_and_analysis == null
+    error_message = "personal-account private repositories must skip security_and_analysis to avoid the provider allow_forking update path"
+  }
+}
+
+#endregion --- [ Personal private repo skips provider-unsafe security block ] ---------------- #

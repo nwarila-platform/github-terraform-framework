@@ -22,6 +22,7 @@ Repository definitions live in `terraform/repos/public/*.yml` and `terraform/rep
 
 - **Seed content is required for branch management.** If a repo sets `auto_init: false`, it must also configure either a `template` or a `fork` source. Otherwise `github_branch_default` will fail at apply time with a provider-level error because there is no default branch to rename. The framework does not pre-validate this — the provider error is adequate.
 - **`allow_forking` is not supported.** The key is rejected at the unknown-top-level-key stage. The setting is org-only and not currently managed by a provider-backed resource in this framework; accepting it would be a silent no-op, which is worse than rejecting it. Revisit if the framework grows explicit org-level management.
+- **Personal-account private repos do not manage `security_and_analysis`.** GitHub rejects the provider's repository update path for those repos because it also touches the org-only `allow_forking` setting. The framework skips the default security baseline for personal private repos and rejects explicit `security_and_analysis` YAML there so the failure happens at plan time.
 - **`require_code_owner_review` requires an effective CODEOWNERS source.** Either set `codeowners: |` per-repo in YAML (required for org mode), set `var.repo_default_codeowners`, or run in personal-account mode (`github_is_organization = false`) so the framework synthesizes `* @<github_owner>` automatically. The CODEOWNERS file is provisioned on the default branch, and rulesets depend on it landing first.
 
 ## Authentication modes
@@ -51,6 +52,8 @@ The framework models GitHub security features as a **visibility-keyed capability
 
 Both variables follow the Packer-coherence style: fully typed, fully required, zero `optional()`.
 
+In personal-account mode (`github_is_organization = false`), private repositories intentionally leave `security_and_analysis` unmanaged. Public repositories and organization-owned repositories still use the capability/baseline normalization path.
+
 ## Regression testing
 
 The framework ships a `terraform test` suite under [terraform/tests/](terraform/tests/) that exercises the validation layer against a set of fixture YAML directories. Tests run offline via `mock_provider` blocks — no real GitHub API calls, no real state.
@@ -73,6 +76,7 @@ terraform test
 - **Security baseline:**
   - Strict mode with a capability gap fails plan.
   - Compatibility mode with the same gap does NOT fail plan but populates `output.security_capability_gap_preview` so operators can see what a strict flip would break.
+  - Personal private repos skip provider-unsafe `security_and_analysis` updates and reject explicit YAML for that block.
 
 **Adding new cases:**
 

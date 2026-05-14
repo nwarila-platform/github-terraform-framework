@@ -12,7 +12,10 @@ name: Reusable Terraform Deploy
 # 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
-# 3. Runs terraform init/plan/apply against the assembled tree.
+# 3. Imports any already-existing repository resources into state before
+#    planning. This lets the framework adopt a pre-existing fleet without
+#    trying to create repos that already exist.
+# 4. Runs terraform init/plan/apply against the assembled tree.
 #
 # S3 layout convention
 # --------------------
@@ -224,6 +227,81 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
+
+      - name: Adopt existing repositories into state
+        working-directory: framework/terraform
+        env:
+          GITHUB_API_VERSION: "2022-11-28"
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' > /tmp/github-repository-names.txt
+          import re
+          from pathlib import Path
+
+          names = set()
+          for directory in (Path("repos/public"), Path("repos/private")):
+              for path in sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml")):
+                  for line in path.read_text(encoding="utf-8").splitlines():
+                      if not line.strip() or line.lstrip().startswith("#") or line.startswith((" ", "\t")):
+                          continue
+                      match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s*(?:#.*)?)?$", line)
+                      if match:
+                          names.add(match.group(1))
+
+          for name in sorted(names):
+              print(name)
+          PY
+
+          if [ ! -s /tmp/github-repository-names.txt ]; then
+            echo "No repository definitions found; skipping state adoption."
+            exit 0
+          fi
+
+          while IFS= read -r repo; do
+            [ -z "${repo}" ] && continue
+
+            address="github_repository.repo[\"${repo}\"]"
+            if terraform state show "${address}" >/dev/null 2>&1; then
+              echo "state already has ${repo}; skipping import"
+              continue
+            fi
+
+            response="$(mktemp)"
+            status="$(
+              curl \
+                --silent \
+                --show-error \
+                --output "${response}" \
+                --write-out "%{http_code}" \
+                --header "Authorization: Bearer ${TF_VAR_github_token}" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" \
+                "https://api.github.com/repos/${TF_VAR_github_owner}/${repo}" || true
+            )"
+
+            case "${status}" in
+              200)
+                echo "importing existing repository ${repo}"
+                if ! terraform import -input=false "${address}" "${repo}"; then
+                  cat "${response}"
+                  rm -f "${response}"
+                  exit 1
+                fi
+                ;;
+              404)
+                echo "remote repository ${repo} does not exist; Terraform will create it"
+                ;;
+              *)
+                echo "GitHub API returned ${status} while checking ${repo}"
+                cat "${response}"
+                rm -f "${response}"
+                exit 1
+                ;;
+            esac
+
+            rm -f "${response}"
+          done < /tmp/github-repository-names.txt
 
       - name: Terraform validate
         working-directory: framework/terraform
