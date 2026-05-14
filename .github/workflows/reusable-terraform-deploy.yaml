@@ -324,7 +324,7 @@ jobs:
           api_version = os.environ["GITHUB_API_VERSION"]
 
           console = subprocess.run(
-              ["terraform", "-no-color", "console"],
+              ["terraform", "console", "-no-color"],
               input="jsonencode(local.branch_rulesets)\n",
               text=True,
               capture_output=True,
