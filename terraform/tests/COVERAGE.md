@@ -122,15 +122,16 @@ terraform test
 | N14 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N15 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
 | N16 | Personal private baseline skips provider-unsafe `security_and_analysis` | ✅ | `security.tftest.hcl::personal_private_baseline_skips_security_and_analysis` |
+| N17 | CODEOWNERS file writes are opt-in | ✅ | `normalization.tftest.hcl::personal_mode_synthesizes_codeowners` + `codeowners_file_management_is_opt_in` |
 
-**Normalization coverage: 16 / 16 ≈ 100%.**
+**Normalization coverage: 17 / 17 ≈ 100%.**
 
 ## `for_each` filter regressions
 
 | # | Filter | Status | Test |
 |---|---|---|---|
 | F01 | `github_repository_dependabot_security_updates` excludes archived | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` (transitive) |
-| F02 | `github_repository_file.codeowners` excludes archived + null effective | ✅ | `normalization.tftest.hcl::good_minimal_produces_zero_environments_zero_codeowners` |
+| F02 | `github_repository_file.codeowners` excludes archived + null effective + `manage_codeowners_files=false` | ✅ | `normalization.tftest.hcl::personal_mode_synthesizes_codeowners` |
 | F03 | `github_actions_repository_permissions.actions` excludes archived + null actions | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
 | F04 | `branches` local excludes archived + empty branch list | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
 | F05 | `branch_rulesets` local excludes archived + applies push filter | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
@@ -164,17 +165,17 @@ terraform test
 | Global validation | 40 | 40 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 16 | 16 | 100% |
+| Normalization paths | 17 | 17 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **83** | **83** | **100%** |
+| **Overall** | **84** | **84** | **100%** |
 
 ## Test run count and artifacts
 
 | Metric | Count |
 |---|---|
 | `.tftest.hcl` files | 4 |
-| `run` blocks total | ~57 |
+| `run` blocks total | ~58 |
 | Fixture directories | ~25 |
 | Assertions total | ~120 |
 

@@ -412,8 +412,9 @@ resource "github_repository_ruleset" "branch" {
 
   # Ordering:
   #   1. Repo exists + default branch renamed + eventual-consistency delay.
-  #   2. CODEOWNERS landed on the default branch (so require_code_owner_review
-  #      doesn't activate against a missing file and block the first PR).
+  #   2. When var.manage_codeowners_files=true, CODEOWNERS landed on the
+  #      default branch (so require_code_owner_review doesn't activate against
+  #      a missing file and block the first PR).
   #   3. Then apply the ruleset.
   #
   # NOTE: github_branch.branches is intentionally ABSENT. Rulesets and
@@ -573,7 +574,7 @@ resource "github_repository_file" "codeowners" {
   for_each = {
     for name, repo in local.all_repositories :
     name => repo
-    if repo.effective_codeowners != null && !repo.archived
+    if var.manage_codeowners_files && repo.effective_codeowners != null && !repo.archived
   }
 
   repository          = github_repository.repo[each.key].name
