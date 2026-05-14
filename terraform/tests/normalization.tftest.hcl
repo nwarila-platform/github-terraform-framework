@@ -199,6 +199,25 @@ run "personal_mode_synthesizes_codeowners" {
     condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @test-owner\n"
     error_message = "personal-mode fixture should synthesize '* @test-owner', got: ${output.all_repositories["good-personal-synthesized-repo"].effective_codeowners}"
   }
+
+  assert {
+    condition     = !can(github_repository_file.codeowners["good-personal-synthesized-repo"])
+    error_message = "CODEOWNERS file writes must remain disabled by default for established protected repos"
+  }
+}
+
+run "codeowners_file_management_is_opt_in" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-personal-synthesized-codeowners"
+    manage_codeowners_files = true
+  }
+
+  assert {
+    condition     = github_repository_file.codeowners["good-personal-synthesized-repo"].content == "* @test-owner\n"
+    error_message = "manage_codeowners_files=true must create the synthesized CODEOWNERS file resource"
+  }
 }
 
 #endregion --- [ CODEOWNERS paths ] ----------------------------------------------------------- #
