@@ -71,6 +71,12 @@ variable "repo_default_codeowners" {
   default     = null
 }
 
+variable "manage_codeowners_files" {
+  description = "Whether Terraform should write .github/CODEOWNERS files directly through the GitHub contents API. Default false because existing protected repos commonly require PRs and signed commits, which direct API writes cannot satisfy. Leave false for established fleets; enable only during controlled bootstrap or for repos whose rules allow the automation identity to write directly."
+  type        = bool
+  default     = false
+}
+
 #endregion --- [ CODEOWNERS ] ---------------------------------------------------------------- #
 
 #region ------ [ Security Baseline ] --------------------------------------------------------- #
