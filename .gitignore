@@ -85,6 +85,9 @@
 !/terraform/tests/fixtures/bad-multi-nested-typos/
 !/terraform/tests/fixtures/bad-multi-nested-typos/private/
 !/terraform/tests/fixtures/bad-multi-nested-typos/private/repo.yml
+!/terraform/tests/fixtures/bad-personal-private-security-analysis/
+!/terraform/tests/fixtures/bad-personal-private-security-analysis/private/
+!/terraform/tests/fixtures/bad-personal-private-security-analysis/private/repo.yml
 !/terraform/tests/fixtures/bad-public-no-description/
 !/terraform/tests/fixtures/bad-public-no-description/public/
 !/terraform/tests/fixtures/bad-public-no-description/public/bad.yml

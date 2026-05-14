@@ -1,0 +1,5 @@
+bad-personal-private-security-repo:
+  description: "personal private repo declaring security_and_analysis"
+  visibility: private
+  security_and_analysis:
+    secret_scanning: true
