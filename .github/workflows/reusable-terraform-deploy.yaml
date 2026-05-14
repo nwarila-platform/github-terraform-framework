@@ -328,8 +328,14 @@ jobs:
               input="jsonencode(local.branch_rulesets)\n",
               text=True,
               capture_output=True,
-              check=True,
           )
+          if console.returncode != 0:
+              print(console.stdout, file=sys.stderr)
+              print(console.stderr, file=sys.stderr)
+              raise SystemExit(
+                  f"terraform console failed while reading local.branch_rulesets "
+                  f"(exit {console.returncode})"
+              )
 
           payload = None
           for line in reversed(console.stdout.splitlines()):
