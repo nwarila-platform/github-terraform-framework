@@ -153,7 +153,11 @@ resource "github_repository" "repo" {
   # check repo-scoped invariants so their errors point at the specific
   # github_repository.repo[<name>] address.
   lifecycle {
-    ignore_changes = [auto_init, license_template]
+    # GitHub only accepts allow_forking updates on organization-owned private
+    # repositories. Ignore remote drift here and keep fork policy enforced by
+    # visibility plus rulesets instead of making personal-account deploys fail
+    # on an unsupported API field.
+    ignore_changes = [auto_init, license_template, allow_forking]
 
     precondition {
       condition     = contains(["public", "private", "internal"], each.value.visibility)
