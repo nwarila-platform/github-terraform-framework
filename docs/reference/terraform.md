@@ -7,7 +7,7 @@ This file is overwritten by `terraform-docs` on every PR via the
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [github_actions_environment_secret.env_secret](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_environment_secret) | resource |
 | [github_actions_environment_variable.env_var](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_environment_variable) | resource |
 | [github_actions_repository_permissions.actions](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_repository_permissions) | resource |
@@ -25,7 +25,7 @@ This file is overwritten by `terraform-docs` on every PR via the
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | github\_app\_auth | GitHub App authentication config. Required when github\_auth\_mode = 'app'. Must be null when github\_auth\_mode = 'token'. pem\_file accepts PEM contents as a string. | <pre>object({<br/>    id              = string<br/>    installation_id = string<br/>    pem_file        = string<br/>  })</pre> | `null` | no |
 | github\_auth\_mode | Provider authentication mode. Must be either 'app' (GitHub App installation, preferred) or 'token' (classic or fine-grained PAT, break-glass only). | `string` | `"token"` | no |
 | github\_is\_organization | Whether the github\_owner is an organization (true) or personal account (false). Controls org-only features and CODEOWNERS synthesis behavior. | `bool` | `false` | no |
@@ -43,7 +43,7 @@ This file is overwritten by `terraform-docs` on every PR via the
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | all\_repositories | Computed repository map. Non-sensitive so terraform test assertions can inspect normalized values. |
 | branch\_rulesets | Computed branch rulesets map. Non-sensitive so terraform test assertions can inspect ruleset counts and values. |
 | locals\_debug | All computed locals for debugging. Marked sensitive to prevent exposure in CI/CD logs. |
