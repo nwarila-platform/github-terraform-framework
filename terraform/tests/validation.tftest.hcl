@@ -85,6 +85,18 @@ run "rejects_allow_forking" {
   ]
 }
 
+run "rejects_personal_private_security_and_analysis" {
+  command = plan
+
+  variables {
+    repo_yaml_path = "tests/fixtures/bad-personal-private-security-analysis"
+  }
+
+  expect_failures = [
+    terraform_data.framework_validation,
+  ]
+}
+
 run "rejects_duplicate_repo_keys" {
   command = plan
 

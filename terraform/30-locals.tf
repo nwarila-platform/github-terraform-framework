@@ -315,6 +315,20 @@ locals {
     var.security_baseline_mode == "strict" ? local.security_capability_gap_preview : []
   )
 
+  # The GitHub provider currently applies security_and_analysis updates through
+  # the github_repository edit path. For personal-account private repos that
+  # path also sends GitHub's org-only allow_forking field, causing apply-time
+  # PATCH 422 failures even when allow_forking is not declared in YAML. Keep the
+  # default baseline from touching that unsupported path, and reject explicit
+  # YAML so operators get a plan-time error instead of a half-applied deploy.
+  personal_private_security_and_analysis_errors = [
+    for name, repo in local.repos_from_yaml :
+    "Repository '${name}' declares security_and_analysis, but personal-account private repositories cannot be safely managed through github_repository.security_and_analysis because the GitHub API/provider update path also touches org-only allow_forking. Remove security_and_analysis for personal private repos or run with github_is_organization=true against an org owner."
+    if !var.github_is_organization
+    && coalesce(try(repo.visibility, null), "private") == "private"
+    && try(repo.security_and_analysis, null) != null
+  ]
+
   # Guard against someone writing secrets as a key-value map instead of a
   # list of names. YAML map form (`SECRET_NAME: "value"`) would commit
   # secret material to the repo in plaintext — the framework must reject
@@ -334,6 +348,7 @@ locals {
     local.unsupported_push_ruleset_errors,
     local.auth_config_errors,
     local.security_capability_gap_errors,
+    local.personal_private_security_and_analysis_errors,
     local.secrets_type_errors,
   )
 }
@@ -554,8 +569,11 @@ locals {
         # Guard: if visibility is not a known key in the baseline/capability
         # matrices (e.g., a typo like "bogus"), skip security normalization
         # entirely — the per-resource precondition on visibility enum will
-        # reject the plan before any resource is created.
+        # reject the plan before any resource is created. Personal-account
+        # private repos also skip this block because the provider update path
+        # collides with GitHub's org-only allow_forking field.
         !contains(["public", "private", "internal"], coalesce(try(repository.visibility, null), "private"))
+        || (!var.github_is_organization && coalesce(try(repository.visibility, null), "private") == "private")
         ? null
         : length([
           for feat in local.security_features :
