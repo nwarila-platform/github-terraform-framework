@@ -7,9 +7,9 @@ name: Reusable Terraform Deploy
 # -----------
 # 1. Optionally downloads private repo definitions from S3 via `aws s3 cp`,
 #    one file per name listed in `private_repos_files`. Files are copied
-#    INTO the runner's `repos/private/` directory (additive — pre-existing
+#    into the runner's `terraform/private/` directory (additive; pre-existing
 #    files in that directory are preserved).
-# 2. Overlays the runner's `repos/public/` and `repos/private/` (now
+# 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
 # 3. Runs terraform init/plan/apply against the assembled tree.
@@ -18,18 +18,17 @@ name: Reusable Terraform Deploy
 # --------------------
 # Private files come from:
 #
-#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/repos/<filename>
+#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/terraform/private/<filename>
 #
 # `<owner-lowercased>` = `${{ github.repository_owner }}` lowercased (so
-# `NWarila` → `nwarila`, `the-hero-wars-guys` → unchanged, etc.). This
-# convention matches the layout all three runner repos use today; consumers
-# that need a different layout can override via the `private_repos_prefix`
-# input.
+# `NWarila` becomes `nwarila`, `the-hero-wars-guys` is unchanged, etc.).
+# Consumers that need a different layout can override via the
+# `private_repos_prefix` input.
 #
 # Caller pattern (in each runner repo):
 #   name: Deploy GitHub Terraform
 #   on:
-#     push: { branches: [main], paths: ['repos/**'] }
+#     push: { branches: [main], paths: ['terraform/**'] }
 #     workflow_dispatch:
 #   permissions:
 #     contents: read
@@ -75,10 +74,10 @@ on:
           Newline-separated list of private-repo definition filenames to
           download from S3 before deploy. Each line is a bare filename
           (e.g. `Personal.yml`); the reusable constructs the full S3 URL
-          via the convention `s3://<aws_s3_bucket>/<owner-lc>/<repo>/repos/`.
+          via the convention `s3://<aws_s3_bucket>/<owner-lc>/<repo>/terraform/private/`.
           Blank lines and `#`-prefixed comments are ignored. Empty input
-          (or input set to just whitespace) skips the S3 step entirely —
-          the runner's committed `repos/private/` is still overlaid onto
+          (or input set to just whitespace) skips the S3 step entirely;
+          the runner's committed `terraform/private/` is still overlaid onto
           the framework.
         required: false
         type: string
@@ -86,7 +85,7 @@ on:
       private_repos_prefix:
         description: |
           Override the S3 prefix from which private files are copied.
-          Defaults to `<owner-lowercased>/<repo>/repos`. The bucket is
+          Defaults to `<owner-lowercased>/<repo>/terraform/private`. The bucket is
           always `secrets.aws_s3_bucket`. Override only for non-standard
           layouts.
         required: false
@@ -165,14 +164,14 @@ jobs:
           else
             owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
             repo_name="${GITHUB_REPOSITORY##*/}"
-            prefix="${owner_lc}/${repo_name}/repos"
+            prefix="${owner_lc}/${repo_name}/terraform/private"
           fi
           echo "S3 prefix: s3://${BUCKET}/${prefix}/"
 
-          dest="runner/repos/private"
+          dest="runner/terraform/private"
           mkdir -p "${dest}"
 
-          # Download each file. The cp is additive — we never delete files
+          # Download each file. The copy is additive; we never delete files
           # already present in the directory (e.g. files committed by the
           # runner repo itself remain).
           while IFS= read -r line; do
@@ -189,15 +188,15 @@ jobs:
           count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
           echo "private/ now contains ${count} file(s) total (S3-fetched + committed)"
 
-      - name: Assemble framework workspace (overlay runner repos/)
+      - name: Assemble framework workspace (overlay runner terraform inventory)
         run: |
           set -euo pipefail
           mkdir -p framework/terraform/repos/public framework/terraform/repos/private
-          if [ -d runner/repos/public ] && compgen -G "runner/repos/public/*" > /dev/null; then
-            cp -a runner/repos/public/. framework/terraform/repos/public/
+          if [ -d runner/terraform/public ] && compgen -G "runner/terraform/public/*" > /dev/null; then
+            cp -a runner/terraform/public/. framework/terraform/repos/public/
           fi
-          if [ -d runner/repos/private ] && compgen -G "runner/repos/private/*" > /dev/null; then
-            cp -a runner/repos/private/. framework/terraform/repos/private/
+          if [ -d runner/terraform/private ] && compgen -G "runner/terraform/private/*" > /dev/null; then
+            cp -a runner/terraform/private/. framework/terraform/repos/private/
           fi
           echo "public:  $(find framework/terraform/repos/public  -maxdepth 1 -type f | wc -l) file(s)"
           echo "private: $(find framework/terraform/repos/private -maxdepth 1 -type f | wc -l) file(s)"
