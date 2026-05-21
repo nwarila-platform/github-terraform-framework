@@ -1,22 +1,9 @@
 name: Drift Gate
 
-# Verifies that this consumer's mirrored copies of upstream baseline
-# files are byte-identical to their canonical sources at SHA-pinned
-# revisions. Fails the PR when they drift, with per-file annotations
-# on the offending files in the "Files changed" view.
-#
-# This consumer derives from two upstream sources, so the gate runs
-# twice — once per tier:
-#
-#   1. Org-baseline (nwarila-platform/.github) — every repo in the org
-#      regardless of stack mirrors these. ADRs that apply org-wide,
-#      the docs/ layout skeleton, etc.
-#
-#   2. Template-baseline (NWarila/terraform-runner-template) — every
-#      Terraform consumer derived from this template mirrors these.
-#      Stack-specific ADRs (e.g. "pin Terraform versions exactly").
-#
-# Both checks must pass for the merge gate to be green.
+# Verifies that this framework repo mirrors the org-owned baseline files
+# byte-for-byte against their canonical source. This repo does not derive from
+# terraform-runner-template; framework-template conformance is enforced through
+# the framework's own tests and workflow surface.
 
 on:
   pull_request:
@@ -45,17 +32,3 @@ jobs:
           source-ref: f2ff593bb4b16555ce0968137f53cdf29b373336 # main @ 2026-05-09
           manifest: baseline-manifest.json
           check-name: org-baseline / verify
-
-  template-baseline:
-    name: template-baseline / verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Drift gate (template baseline)
-        # renovate: datasource=github-tags depName=NWarila/drift-gate
-        uses: NWarila/drift-gate@d835ae411f1e55e25b2b6c079d5891e7345a043c # main @ 2026-05-09
-        with:
-          source-repo: NWarila/terraform-runner-template
-          source-ref: 0f1d82874e2f74f0fe3688d0486be8d954b62023 # main @ 2026-05-09
-          manifest: baseline-manifest.json
-          check-name: template-baseline / verify
