@@ -2,11 +2,10 @@
 
 PRs to `main` must pass:
 
-- `make ci` (Terraform fmt/init/validate/test, TFLint, terraform-docs
-  diff, Diátaxis docs layout, OPA tests)
-- Reusable lint gates (actionlint, shellcheck, yamllint, ruff,
-  markdownlint)
-- Reusable IaC security gates (Trivy, Gitleaks, zizmor)
+- `Terraform Framework Tests` (Terraform fmt/init/validate/test with
+  PR-visible summaries)
+- `Drift Gate` on pull requests (org baseline plus template baseline)
+- `CodeQL Analysis`, `Security Scan`, and `Scorecard` via the portable
+  reusable workflows in `NWarila/terraform-template-template`
 
-All gates run via `NWarila/terraform-template` reusable workflows and
-must be SHA-pinned per the contract.
+Reusable workflow calls must be SHA-pinned.
