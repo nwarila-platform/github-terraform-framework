@@ -581,8 +581,6 @@ resource "github_repository_file" "codeowners" {
   content             = each.value.effective_codeowners
   branch              = each.value.branches[0]
   commit_message      = "chore(codeowners): sync CODEOWNERS via terraform"
-  commit_author       = "nwarila-terraform-automation"
-  commit_email        = "nwarila-terraform-automation@users.noreply.github.com"
   overwrite_on_create = true
 
   # CODEOWNERS writes to the default branch (branches[0]). Secondary
