@@ -2,8 +2,7 @@
 
 ## Local setup
 
-Use the devcontainer in [`nwarila/terraform-template/.devcontainer`](https://github.com/NWarila/terraform-template/tree/main/.devcontainer)
-or install the same pinned tools manually:
+Install the same pinned tools used by CI:
 
 - Terraform 1.15.1
 - TFLint 0.59.1
@@ -25,5 +24,5 @@ make docs       # regenerate docs/reference/terraform.md
 make ci
 ```
 
-If `make ci` is green locally, the reusable validation workflow will be
-green in CI.
+If `make ci` is green locally, it is aligned with the Terraform test workflow
+in CI.
