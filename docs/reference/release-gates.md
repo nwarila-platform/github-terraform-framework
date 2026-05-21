@@ -5,7 +5,7 @@ PRs to `main` must pass:
 - `Terraform Framework Tests` (Terraform fmt/init/validate/test with
   PR-visible summaries)
 - `Drift Gate` on pull requests (org baseline plus template baseline)
-- `CodeQL Analysis`, `Security Scan`, and `Scorecard` via the portable
-  reusable workflows in `NWarila/terraform-template-template`
+- `Security`, which fans out into local framework-template reusable
+  workflows for IaC scanning, CodeQL, and OpenSSF Scorecard
 
-Reusable workflow calls must be SHA-pinned.
+External workflow and action references must be SHA-pinned.

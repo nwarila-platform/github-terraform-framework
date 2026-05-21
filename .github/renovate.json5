@@ -5,13 +5,11 @@
   // Renovate config for nwarila-platform/github-terraform-framework.
   //
   // Per nwarila-platform/.github ADR-0004 (Use Renovate for Dependency
-  // Updates with Per-Template Baselines), this consumer extends only its
-  // type-template — NWarila/terraform-runner-template — which carries the
-  // complete Renovate baseline for every Terraform-runner consumer in the
-  // portfolio. Stack-wide settings live there and propagate transparently.
+  // Updates with Per-Template Baselines), this framework repo extends only
+  // its type-template: NWarila/terraform-framework-template.
   //
   // Anything below the `extends` array is a repo-specific override. Keep
   // it minimal: stack-wide concerns belong in the type-template, not here.
 
-  "extends": ["github>NWarila/terraform-runner-template"]
+  "extends": ["github>NWarila/terraform-framework-template"]
 }
