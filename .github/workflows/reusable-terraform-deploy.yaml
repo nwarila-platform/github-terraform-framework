@@ -1,0 +1,442 @@
+name: Reusable Terraform Deploy
+
+# Deploys this framework against a runner repository's data. Called by the
+# `*-runner` repos under any org.
+#
+# Deploy flow
+# -----------
+# 1. Optionally downloads private repo definitions from S3 via `aws s3 cp`,
+#    one file per name listed in `private_repos_files`. Files are copied
+#    into the runner's `terraform/private/` directory (additive; pre-existing
+#    files in that directory are preserved).
+# 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
+#    containing both committed files and any S3-fetched files) onto the
+#    framework's `terraform/repos/{public,private}/` tree.
+# 3. Imports any already-existing repository and repository-ruleset resources
+#    into state before planning. This lets the framework adopt a pre-existing
+#    fleet without trying to create resources that already exist.
+# 4. Runs terraform init/plan/apply against the assembled tree.
+#
+# S3 layout convention
+# --------------------
+# Private files come from:
+#
+#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/terraform/private/<filename>
+#
+# `<owner-lowercased>` = `${{ github.repository_owner }}` lowercased (so
+# `NWarila` becomes `nwarila`, `the-hero-wars-guys` is unchanged, etc.).
+# Consumers that need a different layout can override via the
+# `private_repos_prefix` input.
+#
+# Caller pattern (in each runner repo):
+#   name: Deploy GitHub Terraform
+#   on:
+#     push: { branches: [main], paths: ['terraform/**'] }
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#     id-token: write
+#   concurrency:
+#     group: tf-${{ github.event.repository.name }}-${{ github.ref }}
+#     cancel-in-progress: false
+#   jobs:
+#     deploy:
+#       uses: nwarila-platform/github-terraform-framework/.github/workflows/reusable-terraform-deploy.yaml@<sha>
+#       with:
+#         github_owner: ${{ github.repository_owner }}
+#         terraform_version: "1.15.1"
+#         private_repos_files: ${{ vars.PRIVATE_REPOS_FILES }}
+#       secrets:
+#         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
+#         aws_region:      ${{ secrets.AWS_REGION }}
+#         backend_bucket:  ${{ secrets.AWS_S3_BUCKET }}
+#         gh_token:    ${{ secrets.FINE_GRAINED_PERSONAL_ACCESS_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      github_owner:
+        description: |
+          GitHub org/user being managed by this deploy. Forwarded to Terraform
+          as TF_VAR_github_owner.
+        required: true
+        type: string
+      terraform_version:
+        description: Exact Terraform version (e.g. "1.15.1").
+        required: true
+        type: string
+      framework_ref:
+        description: |
+          Optional ref of github-terraform-framework to deploy. Defaults to
+          this workflow's own commit (`github.sha` of the reusable).
+        required: false
+        type: string
+        default: ""
+      private_repos_files:
+        description: |
+          Newline-separated list of private-repo definition filenames to
+          download from S3 before deploy. Each line is a bare filename
+          (e.g. `Personal.yml`); the reusable constructs the full S3 URL
+          via the convention `s3://<aws_s3_bucket>/<owner-lc>/<repo>/terraform/private/`.
+          Blank lines and `#`-prefixed comments are ignored. Empty input
+          (or input set to just whitespace) skips the S3 step entirely;
+          the runner's committed `terraform/private/` is still overlaid onto
+          the framework.
+        required: false
+        type: string
+        default: ""
+      private_repos_prefix:
+        description: |
+          Override the S3 prefix from which private files are copied.
+          Defaults to `<owner-lowercased>/<repo>/terraform/private`. The bucket is
+          always `secrets.aws_s3_bucket`. Override only for non-standard
+          layouts.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      aws_role_arn:
+        description: ARN of the AWS role to assume via OIDC.
+        required: true
+      aws_region:
+        description: AWS region for the S3 backend and any data plane calls.
+        required: true
+      backend_bucket:
+        description: S3 bucket holding terraform state.
+        required: true
+      gh_token:
+        description: GitHub token forwarded to Terraform as TF_VAR_github_token.
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TF_VAR_github_owner: ${{ inputs.github_owner }}
+      # gh_token (input name avoids the reserved `github_token`) is forwarded
+      # to Terraform as TF_VAR_github_token so the framework's variable
+      # surface stays unchanged.
+      TF_VAR_github_token: ${{ secrets.gh_token }}
+    steps:
+      - name: Initialize temporary AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          role-to-assume: ${{ secrets.aws_role_arn }}
+          aws-region: ${{ secrets.aws_region }}
+          mask-aws-account-id: true
+
+      - name: Check out runner (caller) repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: runner
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out github-terraform-framework
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: nwarila-platform/github-terraform-framework
+          ref: ${{ inputs.framework_ref || github.sha }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch private repo definitions from S3
+        env:
+          PRIVATE_FILES: ${{ inputs.private_repos_files }}
+          PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
+          BUCKET: ${{ secrets.backend_bucket }}
+        run: |
+          set -euo pipefail
+          # Trim and check whether any non-blank, non-comment lines exist.
+          stripped="$(printf '%s\n' "${PRIVATE_FILES}" | sed 's/#.*//' | tr -d '[:space:]')"
+          if [ -z "${stripped}" ]; then
+            echo "private_repos_files is empty; skipping S3 fetch."
+            exit 0
+          fi
+
+          # Resolve the S3 prefix.
+          if [ -n "${PRIVATE_PREFIX_OVERRIDE}" ]; then
+            prefix="${PRIVATE_PREFIX_OVERRIDE}"
+          else
+            owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+            repo_name="${GITHUB_REPOSITORY##*/}"
+            prefix="${owner_lc}/${repo_name}/terraform/private"
+          fi
+          echo "S3 prefix: s3://${BUCKET}/${prefix}/"
+
+          dest="runner/terraform/private"
+          mkdir -p "${dest}"
+
+          # Download each file. The copy is additive; we never delete files
+          # already present in the directory (e.g. files committed by the
+          # runner repo itself remain).
+          while IFS= read -r line; do
+            entry="${line%%#*}"
+            entry="$(echo "${entry}" | xargs)"
+            [ -z "${entry}" ] && continue
+            aws s3 cp \
+              "s3://${BUCKET}/${prefix}/${entry}" \
+              "${dest}/${entry}" \
+              --only-show-errors
+            echo "fetched ${entry}"
+          done <<< "${PRIVATE_FILES}"
+
+          count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
+          echo "private/ now contains ${count} file(s) total (S3-fetched + committed)"
+
+      - name: Assemble framework workspace (overlay runner terraform inventory)
+        run: |
+          set -euo pipefail
+          mkdir -p framework/terraform/repos/public framework/terraform/repos/private
+          if [ -d runner/terraform/public ] && compgen -G "runner/terraform/public/*" > /dev/null; then
+            cp -a runner/terraform/public/. framework/terraform/repos/public/
+          fi
+          if [ -d runner/terraform/private ] && compgen -G "runner/terraform/private/*" > /dev/null; then
+            cp -a runner/terraform/private/. framework/terraform/repos/private/
+          fi
+          echo "public:  $(find framework/terraform/repos/public  -maxdepth 1 -type f | wc -l) file(s)"
+          echo "private: $(find framework/terraform/repos/private -maxdepth 1 -type f | wc -l) file(s)"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: framework/terraform
+        env:
+          BACKEND_BUCKET: ${{ secrets.backend_bucket }}
+          AWS_REGION: ${{ secrets.aws_region }}
+        run: |
+          set -euo pipefail
+          # Lowercase the owner to match the historical state-key convention
+          # (NWarila -> nwarila). Same lowercasing convention the private-repo
+          # S3 prefix uses.
+          owner_lc="$(printf '%s' "${TF_VAR_github_owner}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          terraform init \
+            -backend-config="bucket=${BACKEND_BUCKET}" \
+            -backend-config="encrypt=true" \
+            -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Adopt existing repositories into state
+        working-directory: framework/terraform
+        env:
+          GITHUB_API_VERSION: "2022-11-28"
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' > /tmp/github-repository-names.txt
+          import re
+          from pathlib import Path
+
+          names = set()
+          for directory in (Path("repos/public"), Path("repos/private")):
+              for path in sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml")):
+                  for line in path.read_text(encoding="utf-8").splitlines():
+                      if not line.strip() or line.lstrip().startswith("#") or line.startswith((" ", "\t")):
+                          continue
+                      match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s*(?:#.*)?)?$", line)
+                      if match:
+                          names.add(match.group(1))
+
+          for name in sorted(names):
+              print(name)
+          PY
+
+          if [ ! -s /tmp/github-repository-names.txt ]; then
+            echo "No repository definitions found; skipping state adoption."
+            exit 0
+          fi
+
+          while IFS= read -r repo; do
+            [ -z "${repo}" ] && continue
+
+            address="github_repository.repo[\"${repo}\"]"
+            if terraform state show "${address}" >/dev/null 2>&1; then
+              echo "state already has ${repo}; skipping import"
+              continue
+            fi
+
+            response="$(mktemp)"
+            status="$(
+              curl \
+                --silent \
+                --show-error \
+                --output "${response}" \
+                --write-out "%{http_code}" \
+                --header "Authorization: Bearer ${TF_VAR_github_token}" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" \
+                "https://api.github.com/repos/${TF_VAR_github_owner}/${repo}" || true
+            )"
+
+            case "${status}" in
+              200)
+                echo "importing existing repository ${repo}"
+                if ! terraform import -input=false "${address}" "${repo}"; then
+                  cat "${response}"
+                  rm -f "${response}"
+                  exit 1
+                fi
+                ;;
+              404)
+                echo "remote repository ${repo} does not exist; Terraform will create it"
+                ;;
+              *)
+                echo "GitHub API returned ${status} while checking ${repo}"
+                cat "${response}"
+                rm -f "${response}"
+                exit 1
+                ;;
+            esac
+
+            rm -f "${response}"
+          done < /tmp/github-repository-names.txt
+
+      - name: Adopt existing repository rulesets into state
+        working-directory: framework/terraform
+        env:
+          GITHUB_API_VERSION: "2022-11-28"
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import ast
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.request
+
+          owner = os.environ["TF_VAR_github_owner"]
+          token = os.environ["TF_VAR_github_token"]
+          api_version = os.environ["GITHUB_API_VERSION"]
+
+          console = subprocess.run(
+              ["terraform", "console", "-no-color"],
+              input="jsonencode(local.branch_rulesets)\n",
+              text=True,
+              capture_output=True,
+          )
+          if console.returncode != 0:
+              print(console.stdout, file=sys.stderr)
+              print(console.stderr, file=sys.stderr)
+              raise SystemExit(
+                  f"terraform console failed while reading local.branch_rulesets "
+                  f"(exit {console.returncode})"
+              )
+
+          payload = None
+          for line in reversed(console.stdout.splitlines()):
+              candidate = line.strip()
+              if candidate.startswith('"') and candidate.endswith('"'):
+                  payload = ast.literal_eval(candidate)
+                  break
+
+          if payload is None:
+              print(console.stdout, file=sys.stderr)
+              print(console.stderr, file=sys.stderr)
+              raise SystemExit("could not read local.branch_rulesets from terraform console")
+
+          desired = json.loads(payload)
+          if not desired:
+              print("No desired repository rulesets found; skipping ruleset adoption.")
+              raise SystemExit(0)
+
+          rulesets_cache = {}
+
+          def remote_rulesets(repo):
+              if repo in rulesets_cache:
+                  return rulesets_cache[repo]
+
+              url = f"https://api.github.com/repos/{owner}/{repo}/rulesets?per_page=100"
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": api_version,
+                  },
+              )
+
+              try:
+                  with urllib.request.urlopen(request) as response:
+                      data = json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      data = []
+                  else:
+                      raise
+
+              rulesets_cache[repo] = data
+              return data
+
+          for key, ruleset in sorted(desired.items()):
+              repo = ruleset["repository"]
+              name = ruleset["name"]
+              address = f'github_repository_ruleset.branch["{key}"]'
+
+              state = subprocess.run(
+                  ["terraform", "state", "show", address],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  text=True,
+              )
+              if state.returncode == 0:
+                  print(f"state already has ruleset {key}; skipping import")
+                  continue
+
+              match = next(
+                  (item for item in remote_rulesets(repo) if item.get("name") == name),
+                  None,
+              )
+              if match is None:
+                  print(f"remote ruleset {repo}/{name} does not exist; Terraform will create it")
+                  continue
+
+              import_id = f"{repo}:{match['id']}"
+              print(f"importing existing ruleset {repo}/{name} as {key}")
+              subprocess.run(
+                  ["terraform", "import", "-input=false", address, import_id],
+                  check=True,
+              )
+          PY
+
+      - name: Terraform validate
+        working-directory: framework/terraform
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: framework/terraform
+        run: |
+          terraform plan -out=tfplan
+          terraform show -no-color tfplan > plan-output.txt
+
+      - name: Archive plan output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: terraform-plan-${{ github.sha }}
+          path: framework/terraform/plan-output.txt
+          retention-days: 90
+
+      - name: Terraform apply
+        working-directory: framework/terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -f framework/terraform/tfplan
+          rm -rf runner framework

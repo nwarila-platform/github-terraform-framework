@@ -15,6 +15,7 @@
 !/.github/workflows/reusable-codeql.yaml
 !/.github/workflows/reusable-iac-security.yaml
 !/.github/workflows/reusable-scorecard.yaml
+!/.github/workflows/reusable-terraform-deploy.yaml
 
 # Keep core repo files.
 !/.gitattributes
