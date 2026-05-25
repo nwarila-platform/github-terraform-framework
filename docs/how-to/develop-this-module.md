@@ -4,7 +4,7 @@
 
 Install the same pinned tools used by CI:
 
-- Terraform 1.15.1
+- Terraform 1.15.4
 - TFLint 0.59.1
 - terraform-docs 0.20.0
 - OPA 1.10.0
