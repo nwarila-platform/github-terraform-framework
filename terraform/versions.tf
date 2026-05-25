@@ -1,6 +1,6 @@
 terraform {
   # Pin Terraform exactly per org ADR 0005.
-  required_version = "= 1.15.1"
+  required_version = "= 1.15.4"
 
   required_providers {
     github = {
