@@ -1,5 +1,30 @@
 # Terraform Framework Remediation Plan
 
+## Status (as of 2026-05-26)
+
+Most of this plan is now implemented on `main`. The matrix below records the current status of each Decision Summary line and each Finding. Mark a row "Done" only when a code change or explicit policy decision is on `main`; "Open" if work remains; "N/A" if superseded.
+
+| Area / Finding | Status | Notes |
+|---|---|---|
+| Finding 1 — Default PR gate `require_code_owner_review` coherence | Done | `effective_codeowners` synthesis + `manage_codeowners_files` opt-in flag tracked separately; current `main` keeps CODEOWNERS coherent with the default gate. |
+| Finding 2 — Nested YAML deep validation | Done | `terraform_data.framework_validation` enforces deep nested key validation across `pages`, `actions`, `rules`, `environments`, `template`, `security_and_analysis`. |
+| Finding 3 — Unsupported push rulesets become plan-blocking errors | Done | `github_supports_push_rulesets` variable + validation; unsupported push rulesets surface as plan-time errors. |
+| Finding 4 — `allow_forking` silent no-op | **Done in 2026-05-26 (PRs #62, #63)** | Now an opt-in YAML key with ownership-aware default: personal-account + visibility=private defaults to `null` (provider omits field, bypassing the API rejection); everything else defaults to `false`; YAML can override either. Provider bumped 6.10.2 → 6.12.1 so `null` is honored on PATCH. |
+| Finding 5 — Nested optional fields not safe to omit | Done | Resource definitions use `try(..., null)` + `coalesce(...)` pattern throughout `local.all_repositories`; nested optionals normalize to safe defaults. |
+| Finding 6 — Private/internal security defaults | Done | `var.github_security_capabilities` + `var.security_baseline_mode` enforce the capability matrix. Capability gaps surface as plan-time errors (Finding 6's "permissive-by-omission" failure mode is now fail-closed). |
+| Finding 7 — Branch management assumes seed content | **REJECTED** (per existing `Finding 7: ... [REJECTED]` heading below) | The original framing was rejected; the seed-content concern is handled via documentation rather than additional validation. |
+| Finding 8 — Provider auth PAT-only | Done | `var.github_auth_mode` + `var.github_app_auth` declared; PAT remains as explicit fallback. |
+| Finding 9 — `repo_default_rules` style coherence | Done | `repo_default_rules` is now a single normalization layer matching the Packer-coherence pattern. |
+
+### Remaining open items
+
+- `manage_codeowners_files = true` opt-in (Finding 1 follow-up). The variable doesn't currently exist on `main`; the unmerged `chore/standardize-fleet-bead9a4` branch had it. Future work: declare the variable on `main` + add the corresponding `github_repository_file.codeowners` toggle + the two test cases that exercise both states.
+- `terraform-provider-github` upstream behavior. The Finding 4 fix depends on the provider honoring `null` to omit the field from PATCH. Provider 6.12 does. Any provider downgrade would re-open the finding; pin discipline (Renovate-tracked) keeps that risk low.
+
+### Maintenance protocol
+
+When a Finding's status changes, update this table in the same PR that lands the change. Drift between the documented status and reality undermines the table's value; the goal is that this table is the single source of truth for what the framework's "remediation" surface looks like.
+
 ## Purpose
 
 This document consolidates the adversarial review findings for the Terraform framework in this repository into a single decision package.
