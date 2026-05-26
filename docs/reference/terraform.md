@@ -8,17 +8,17 @@ This file is overwritten by `terraform-docs` on every PR via the
 
 | Name | Type |
 | ---- | ---- |
-| [github_actions_environment_secret.env_secret](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_environment_secret) | resource |
-| [github_actions_environment_variable.env_var](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_environment_variable) | resource |
-| [github_actions_repository_permissions.actions](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/actions_repository_permissions) | resource |
-| [github_branch.branches](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/branch) | resource |
-| [github_branch_default.default](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/branch_default) | resource |
-| [github_repository.repo](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository) | resource |
-| [github_repository_dependabot_security_updates.repo](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository_dependabot_security_updates) | resource |
-| [github_repository_environment.environment](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository_environment) | resource |
-| [github_repository_environment_deployment_policy.environment](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository_environment_deployment_policy) | resource |
-| [github_repository_file.codeowners](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository_file) | resource |
-| [github_repository_ruleset.branch](https://registry.terraform.io/providers/integrations/github/6.10.2/docs/resources/repository_ruleset) | resource |
+| [github_actions_environment_secret.env_secret](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/actions_environment_secret) | resource |
+| [github_actions_environment_variable.env_var](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/actions_environment_variable) | resource |
+| [github_actions_repository_permissions.actions](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/actions_repository_permissions) | resource |
+| [github_branch.branches](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/branch) | resource |
+| [github_branch_default.default](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/branch_default) | resource |
+| [github_repository.repo](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository) | resource |
+| [github_repository_dependabot_security_updates.repo](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_dependabot_security_updates) | resource |
+| [github_repository_environment.environment](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_environment) | resource |
+| [github_repository_environment_deployment_policy.environment](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_environment_deployment_policy) | resource |
+| [github_repository_file.codeowners](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_file) | resource |
+| [github_repository_ruleset.branch](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_ruleset) | resource |
 | [terraform_data.framework_validation](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [time_sleep.after_branch_default](https://registry.terraform.io/providers/hashicorp/time/0.12.1/docs/resources/sleep) | resource |
 
