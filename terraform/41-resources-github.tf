@@ -49,6 +49,7 @@ resource "github_repository" "repo" {
   is_template     = each.value.is_template
 
   # Merge Behavior
+  allow_forking               = each.value.allow_forking
   allow_merge_commit          = each.value.allow_merge_commit
   allow_squash_merge          = each.value.allow_squash_merge
   allow_rebase_merge          = each.value.allow_rebase_merge
@@ -153,11 +154,13 @@ resource "github_repository" "repo" {
   # check repo-scoped invariants so their errors point at the specific
   # github_repository.repo[<name>] address.
   lifecycle {
-    # `allow_forking` is an org-owned private/internal repository setting in
-    # GitHub's API. The provider may observe it during refresh, but this
-    # framework does not expose it in repo YAML and must not PATCH it for
-    # personal-account repositories.
-    ignore_changes = [auto_init, license_template, allow_forking]
+    # `auto_init` and `license_template` are CREATE-time only; ignoring
+    # them prevents spurious diff after the initial create. `allow_forking`
+    # is now explicitly managed in YAML (default null for private repos so
+    # the provider omits it from PATCH; default false for public/internal;
+    # YAML may override either). It is NOT ignored anymore — drift in
+    # YAML-managed values should surface as a real diff.
+    ignore_changes = [auto_init, license_template]
 
     precondition {
       condition     = contains(["public", "private", "internal"], each.value.visibility)

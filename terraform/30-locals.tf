@@ -35,16 +35,18 @@ locals {
   # outside this set indicates a typo or schema drift and is rejected by
   # terraform_data.framework_validation.
   #
-  # NOTE: `allow_forking` is intentionally absent. The setting is org-only
-  # in the GitHub API and this framework does not currently manage it via a
-  # provider-backed resource (github_repository_setting / org-level config).
-  # Accepting the key would be a silent no-op, so it is rejected at the
-  # unknown-key stage with a clear error pointing at the offending repo.
+  # NOTE: `allow_forking` is opt-in. The GitHub API rejects PATCH calls
+  # that include the field on personal-account private repositories, so
+  # this framework treats the field as null-by-default. A repo YAML may
+  # explicitly opt in by setting `allow_forking: true|false` — the
+  # provider includes the field in PATCH only when non-null, so opt-in
+  # repos manage the setting normally and opt-out (default) repos never
+  # trip the API rejection.
   allowed_repo_keys = toset([
     "description", "homepage_url", "topics",
     "fork", "source_owner", "source_repo",
     "visibility", "has_discussions", "has_issues", "has_projects", "has_wiki", "is_template",
-    "allow_auto_merge", "allow_merge_commit", "allow_rebase_merge",
+    "allow_auto_merge", "allow_forking", "allow_merge_commit", "allow_rebase_merge",
     "allow_squash_merge", "allow_update_branch", "delete_branch_on_merge",
     "merge_commit_message", "merge_commit_title",
     "squash_merge_commit_message", "squash_merge_commit_title",
@@ -431,6 +433,29 @@ locals {
       allow_auto_merge = coalesce(
         try(repository.allow_auto_merge, null),
         local.repo_setting_defaults.allow_auto_merge
+      )
+
+      # Default policy (ownership-aware):
+      #   1. YAML explicitly sets true/false → honor it.
+      #   2. YAML omits the key + visibility == "private"
+      #         + github_is_organization == false → null.
+      #         (Personal-account private: the API rejects any PATCH
+      #         containing allow_forks regardless of value, so the
+      #         provider must omit the field entirely.)
+      #   3. Every other case → false (secure-by-default; forks disabled
+      #         unless YAML opts in via `allow_forking: true`).
+      #         Covers public, internal, AND org-owned private —
+      #         GitHub's API accepts the field for all three, so the
+      #         framework enforces the policy.
+      allow_forking = (
+        try(repository.allow_forking, null) != null
+        ? repository.allow_forking
+        : (
+          coalesce(try(repository.visibility, null), "private") == "private"
+          && !var.github_is_organization
+          ? null
+          : false
+        )
       )
 
       allow_merge_commit = coalesce(
