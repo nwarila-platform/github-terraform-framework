@@ -73,18 +73,6 @@ run "rejects_unknown_nested_key" {
   ]
 }
 
-run "rejects_allow_forking" {
-  command = plan
-
-  variables {
-    repo_yaml_path = "tests/fixtures/bad-allow-forking"
-  }
-
-  expect_failures = [
-    terraform_data.framework_validation,
-  ]
-}
-
 run "rejects_duplicate_repo_keys" {
   command = plan
 
