@@ -20,6 +20,7 @@
 # Keep core repo files.
 !/.gitattributes
 !/.gitignore
+!/.template-type
 !/DESIGN.md
 !/LICENSE
 !/README.md
