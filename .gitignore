@@ -226,3 +226,6 @@
 !/docs/how-to/setup-github-pat.md
 !/docs/reference/aws-iam-policy.md
 !/docs/reference/github-pat-permissions.md
+!/docs/decision-records/org/0005-keep-github-control-planes-namespace-local.md
+!/.github/workflows/org-adr-sync.yaml
+!/.github/workflows/org-adr-auto-sync.yaml
