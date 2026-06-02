@@ -56,7 +56,7 @@ locals {
     "vulnerability_alerts", "dependabot_security_updates",
     "pages", "security_and_analysis", "template",
     "branches", "rules", "actions", "environments",
-    "codeowners",
+    "codeowners", "required_checks",
   ])
 
   # Allowed keys for nested object types. These are checked in addition to
@@ -625,6 +625,12 @@ locals {
 
       rules = try(repository.rules, var.repo_default_rules)
 
+      # Opt-in required status checks. When a repo lists check contexts here,
+      # they are injected into its Pull Request Gate ruleset (the ruleset that
+      # carries a pull_request rule) as a required_status_checks rule. Empty
+      # (the default) means no change — CI stays advisory, as before.
+      required_checks = try(repository.required_checks, [])
+
       # Effective CODEOWNERS resolution (Finding 1).
       #
       # Precedence:
@@ -876,16 +882,37 @@ locals {
               required_deployment_environments = try(rule.rules.required_deployments.required_deployment_environments, [])
             }
 
-            required_status_checks = try(rule.rules.required_status_checks, null) == null ? null : {
-              required_check = [
-                for required_check in try(rule.rules.required_status_checks.required_check, []) : {
-                  context        = required_check.context
-                  integration_id = try(required_check.integration_id, null)
-                }
-              ]
-              strict_required_status_checks_policy = coalesce(try(rule.rules.required_status_checks.strict_required_status_checks_policy, null), false)
-              do_not_enforce_on_create             = coalesce(try(rule.rules.required_status_checks.do_not_enforce_on_create, null), false)
-            }
+            # Precedence:
+            #   1. An explicit required_status_checks rule in the repo YAML wins.
+            #   2. Otherwise, if the repo opted in via top-level `required_checks`
+            #      AND this ruleset carries the pull_request rule (the PR Gate),
+            #      inject those contexts as a required_status_checks rule.
+            #   3. Otherwise null (advisory CI, unchanged baseline behavior).
+            # do_not_enforce_on_create=true so branch creation is never blocked
+            # by a not-yet-reported check.
+            required_status_checks = (
+              try(rule.rules.required_status_checks, null) != null ? {
+                required_check = [
+                  for required_check in try(rule.rules.required_status_checks.required_check, []) : {
+                    context        = required_check.context
+                    integration_id = try(required_check.integration_id, null)
+                  }
+                ]
+                strict_required_status_checks_policy = coalesce(try(rule.rules.required_status_checks.strict_required_status_checks_policy, null), false)
+                do_not_enforce_on_create             = coalesce(try(rule.rules.required_status_checks.do_not_enforce_on_create, null), false)
+                } : (
+                try(rule.rules.pull_request, null) != null && length(repository.required_checks) > 0 ? {
+                  required_check = [
+                    for context in repository.required_checks : {
+                      context        = context
+                      integration_id = null
+                    }
+                  ]
+                  strict_required_status_checks_policy = false
+                  do_not_enforce_on_create             = true
+                } : null
+              )
+            )
 
             tag_name_pattern = try(rule.rules.tag_name_pattern, null) == null ? null : {
               name     = try(rule.rules.tag_name_pattern.name, null)
