@@ -5,8 +5,8 @@
 Install the same pinned tools used by CI:
 
 - Terraform 1.15.4
-- TFLint 0.59.1
-- terraform-docs 0.20.0
+- TFLint 0.62.0
+- terraform-docs 0.23.0
 - OPA 1.10.0
 - Python 3.12 with `pyyaml`, `ruff`, `yamllint`, `zizmor`
 

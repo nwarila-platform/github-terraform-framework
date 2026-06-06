@@ -133,7 +133,7 @@ terraform test
 | F04 | `branches` local excludes archived + empty branch list | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
 | F05 | `branch_rulesets` local excludes archived + applies push filter | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
 | F06 | `repository_environments` excludes archived + empty envs | ✅ | `normalization.tftest.hcl::good_minimal_produces_zero_environments_zero_codeowners` |
-| F07 | `repository_environment_branch_policies` requires `custom_branch_policies == true` | ✅ | Transitively covered by good-with-environments (uses protected_branches path) |
+| F07 | `repository_environment_branch_policies` requires `custom_branch_policies == true` | ✅ | `normalization.tftest.hcl::custom_environment_branch_policy_plans_clean` |
 | F08 | `repository_environment_variables` requires non-empty variables | ✅ | `normalization.tftest.hcl::good_minimal_produces_zero_environments_zero_codeowners` |
 | F09 | `repository_environment_secrets` for_each skips envs with zero declared secret names | ✅ | `normalization.tftest.hcl::good_minimal_produces_zero_environments_zero_codeowners` |
 | F10 | Empty-input resilience (every filter survives zero repos) | ✅ | `normalization.tftest.hcl::empty_repo_set_exercises_every_filter_on_zero_input` |
@@ -172,9 +172,9 @@ terraform test
 | Metric | Count |
 |---|---|
 | `.tftest.hcl` files | 4 |
-| `run` blocks total | ~55 |
-| Fixture directories | ~25 |
-| Assertions total | ~120 |
+| `run` blocks total | 55 |
+| Fixture directories | 31 |
+| Assertions total | 76 |
 
 ## Explicitly NOT tested (by design)
 

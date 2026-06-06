@@ -1,3 +1,7 @@
+tflint {
+  required_version = "= 0.62.0"
+}
+
 config {
-  module = false
+  call_module_type = "none"
 }

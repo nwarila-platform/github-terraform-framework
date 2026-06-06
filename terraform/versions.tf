@@ -1,5 +1,5 @@
 terraform {
-  # Pin Terraform exactly per org ADR 0005.
+  # Pin Terraform exactly per template ADR 0001.
   required_version = "= 1.15.4"
 
   required_providers {

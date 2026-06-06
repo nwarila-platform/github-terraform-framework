@@ -44,7 +44,7 @@ name: Reusable Terraform Deploy
 #       uses: nwarila-platform/github-terraform-framework/.github/workflows/reusable-terraform-deploy.yaml@<sha>
 #       with:
 #         github_owner: ${{ github.repository_owner }}
-#         terraform_version: "1.15.1"
+#         terraform_version: "1.15.4"
 #         private_repos_files: ${{ vars.PRIVATE_REPOS_FILES }}
 #       secrets:
 #         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -62,7 +62,7 @@ on:
         required: true
         type: string
       terraform_version:
-        description: Exact Terraform version (e.g. "1.15.1").
+        description: Exact Terraform version (e.g. "1.15.4").
         required: true
         type: string
       framework_ref:

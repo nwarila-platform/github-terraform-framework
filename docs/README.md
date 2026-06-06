@@ -25,9 +25,10 @@ This directory follows the [Diátaxis](https://diataxis.fr) framework, adopted o
 
 ## Architecture decisions
 
-ADRs governing this repository live in this `docs/` tree at [`decision-records/`](decision-records/), split into two scopes per [ADR-0001](decision-records/org/0001-use-architecture-decision-records.md):
+ADRs governing this repository live in this `docs/` tree at [`decision-records/`](decision-records/), split into three scopes per [ADR-0001](decision-records/org/0001-use-architecture-decision-records.md):
 
 - [`decision-records/org/`](decision-records/org/) — byte-identical mirror of the org-baseline ADRs whose master copies live in [`nwarila-platform/.github/docs/decision-records/`](https://github.com/nwarila-platform/.github/tree/main/docs/decision-records).
+- [`decision-records/template/`](decision-records/template/) — inherited Terraform framework decisions.
 - `decision-records/repo/` — repository-specific ADRs (none yet).
 
 ADRs sit at `decision-records/` rather than under one of the four Diátaxis quadrants because they're a separately-governed artifact type (per ADR-0001), not Reference / How-to / Explanation prose.
