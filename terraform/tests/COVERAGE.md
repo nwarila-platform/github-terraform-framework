@@ -186,7 +186,7 @@ The following categories are intentionally excluded. Testing them is either dupl
 | `dynamic` block emission | Same reason. Emits from validated locals; no logic of its own. |
 | Ruleset rule sub-attribute pass-through (~20 fields) | Same reason. Tested via `branch_rulesets` local assertions. |
 | Apply-time `depends_on` ordering under concurrency | `terraform test` cannot observe real ordering without real apply. Belongs in runner integration tests. |
-| Provider authentication against real GitHub | Not our code. `mock_provider` bypasses real auth intentionally. |
+| Provider authentication against real provider APIs | Not our code. `mock_provider` bypasses real auth intentionally. |
 | Provider internal behavior | Not our code. HashiCorp's contract. |
 | Backend state locking | Backend is configured by the runner's `backend_override.tf`. |
 | `yamldecode` edge cases | Terraform builtin. Not our code. |

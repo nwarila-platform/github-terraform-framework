@@ -6,7 +6,7 @@ This framework is a **root module** consumed by [github-terraform-runner](../git
 
 ## Versioning and CLI pinning contract
 
-This framework pins an **exact** Terraform CLI version via `required_version` in [terraform/00-providers.tf](terraform/00-providers.tf). Downstream consumers must:
+This framework pins an **exact** Terraform CLI version via `required_version` in [terraform/versions.tf](terraform/versions.tf). Downstream consumers must:
 
 1. **Pin the framework by commit SHA**, not by branch or tag. A branch pin would let an unreviewed framework change land in the consumer silently.
 2. **Review framework changes in a PR against the consuming repo**. When the framework updates — including any change to `required_version` — the consumer opens a PR that bumps the pinned SHA. CI in the consumer runs against the new SHA.
