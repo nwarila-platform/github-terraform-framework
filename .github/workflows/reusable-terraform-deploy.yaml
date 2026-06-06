@@ -108,15 +108,16 @@ on:
         description: GitHub token forwarded to Terraform as TF_VAR_github_token.
         required: true
 
-permissions:
-  contents: read
-  id-token: write
+permissions: {}
 
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # required to assume the caller's cloud role via OIDC
     env:
       TF_VAR_github_owner: ${{ inputs.github_owner }}
       # gh_token (input name avoids the reserved `github_token`) is forwarded

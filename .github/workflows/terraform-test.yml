@@ -10,7 +10,10 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+
+concurrency:
+  group: terraform-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -24,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
@@ -58,17 +63,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          JSON_FILE="../test-results.json"
           HUMAN_FILE="../test-results.txt"
-
-          if [ ! -f "$JSON_FILE" ]; then
-            echo "total=0" >> "$GITHUB_OUTPUT"
-            echo "passed=0" >> "$GITHUB_OUTPUT"
-            echo "failed=0" >> "$GITHUB_OUTPUT"
-            echo "skipped=0" >> "$GITHUB_OUTPUT"
-            echo "result=error" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           PASSED=$(grep -cE '^\s+run ".*"\.\.\. pass$' "$HUMAN_FILE" || true)
           FAILED=$(grep -cE '^\s+run ".*"\.\.\. fail$' "$HUMAN_FILE" || true)
@@ -95,19 +90,36 @@ jobs:
       - name: Job Summary
         if: always()
         shell: bash
+        env:
+          FMT_OUTCOME: ${{ steps.fmt.outcome }}
+          INIT_OUTCOME: ${{ steps.init.outcome }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          TEST_OUTCOME: ${{ steps.test_human.outcome }}
+          TOTAL_RUNS: ${{ steps.parse.outputs.total }}
+          PASSED_RUNS: ${{ steps.parse.outputs.passed }}
+          FAILED_RUNS: ${{ steps.parse.outputs.failed }}
+          SKIPPED_RUNS: ${{ steps.parse.outputs.skipped }}
         run: |
           HUMAN_FILE="../test-results.txt"
+          status() {
+            if [ "$1" = "success" ]; then
+              printf "Pass"
+            else
+              printf "Fail"
+            fi
+          }
+
           {
             echo "## Terraform Framework Test Results"
             echo ""
             echo "| Check | Status |"
             echo "|---|---|"
-            echo "| Format | ${{ steps.fmt.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |"
-            echo "| Init | ${{ steps.init.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |"
-            echo "| Validate | ${{ steps.validate.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |"
-            echo "| Test Suite | ${{ steps.test_human.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |"
+            echo "| Format | $(status "$FMT_OUTCOME") |"
+            echo "| Init | $(status "$INIT_OUTCOME") |"
+            echo "| Validate | $(status "$VALIDATE_OUTCOME") |"
+            echo "| Test Suite | $(status "$TEST_OUTCOME") |"
             echo ""
-            echo "**Runs:** ${{ steps.parse.outputs.total }} total, ${{ steps.parse.outputs.passed }} passed, ${{ steps.parse.outputs.failed }} failed, ${{ steps.parse.outputs.skipped }} skipped"
+            echo "**Runs:** ${TOTAL_RUNS} total, ${PASSED_RUNS} passed, ${FAILED_RUNS} failed, ${SKIPPED_RUNS} skipped"
             echo ""
             echo "<details>"
             echo "<summary>Full test output</summary>"
@@ -121,79 +133,6 @@ jobs:
             echo '```'
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Comment on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            const fs = require('fs');
-            const humanFile = 'test-results.txt';
-            let testOutput = 'No test output captured.';
-            if (fs.existsSync(humanFile)) {
-              testOutput = fs.readFileSync(humanFile, 'utf8');
-              if (testOutput.length > 60000) {
-                testOutput = testOutput.substring(0, 60000) + '\n\n... (truncated)';
-              }
-            }
-
-            const fmtStatus = '${{ steps.fmt.outcome }}' === 'success' ? '✅' : '❌';
-            const initStatus = '${{ steps.init.outcome }}' === 'success' ? '✅' : '❌';
-            const valStatus = '${{ steps.validate.outcome }}' === 'success' ? '✅' : '❌';
-            const testStatus = '${{ steps.test_human.outcome }}' === 'success' ? '✅' : '❌';
-            const passed = '${{ steps.parse.outputs.passed }}';
-            const failed = '${{ steps.parse.outputs.failed }}';
-            const total = '${{ steps.parse.outputs.total }}';
-            const skipped = '${{ steps.parse.outputs.skipped }}';
-
-            const body = [
-              '## Terraform Framework Test Results',
-              '',
-              '| Check | Status |',
-              '|---|---|',
-              `| Format | ${fmtStatus} |`,
-              `| Init | ${initStatus} |`,
-              `| Validate | ${valStatus} |`,
-              `| Test Suite | ${testStatus} |`,
-              '',
-              `**Runs:** ${total} total, ${passed} passed, ${failed} failed, ${skipped} skipped`,
-              '',
-              '<details>',
-              '<summary>Full test output</summary>',
-              '',
-              '```',
-              testOutput,
-              '```',
-              '</details>',
-              '',
-              `_Commit: ${context.sha.substring(0, 8)}_`,
-            ].join('\n');
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('Terraform Framework Test Results')
-            );
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: body,
-              });
-            }
 
       - name: Upload Test Artifacts
         if: always()

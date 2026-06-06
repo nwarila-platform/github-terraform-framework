@@ -39,8 +39,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
-      security-events: write
-      actions: read
+      security-events: write # required to upload CodeQL SARIF
+      actions: read # required by CodeQL upload-sarif to associate results with the run
 
     strategy:
       fail-fast: false

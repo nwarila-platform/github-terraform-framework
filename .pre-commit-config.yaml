@@ -10,7 +10,7 @@ repos:
 
       - id: terraform-docs
         name: terraform-docs
-        entry: terraform-docs markdown table --output-file ../docs/reference/terraform.md --output-mode inject terraform
+        entry: terraform-docs --config .terraform-docs.yml markdown table --output-file ../docs/reference/terraform.md --output-mode inject terraform
         language: system
         pass_filenames: false
         files: ^terraform/.*\.tf$

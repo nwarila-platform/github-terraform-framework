@@ -71,8 +71,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      security-events: write
-      actions: read
+      security-events: write # required to upload Trivy SARIF
+      actions: read # required by CodeQL upload-sarif to associate results with the run
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -107,7 +107,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -134,7 +133,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      security-events: write
+      security-events: write # required to upload workflow-scan SARIF
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

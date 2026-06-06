@@ -68,9 +68,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      security-events: write
-      id-token: write
-      actions: read
+      security-events: write # required to upload Scorecard SARIF
+      id-token: write # required by OpenSSF Scorecard tokenless attestation
+      actions: read # required by code-scanning upload metadata
       contents: read
 
     steps:

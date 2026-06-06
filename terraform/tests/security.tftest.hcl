@@ -14,7 +14,6 @@
 #% ========================================================================================== %#
 
 mock_provider "github" {}
-mock_provider "aws" {}
 mock_provider "time" {}
 
 variables {
