@@ -509,30 +509,6 @@ variable "repo_default_rules" {
         non_fast_forward    = true
         required_signatures = true
       }
-    },
-    {
-      name        = "CI Status Advisory"
-      target      = "branch"
-      enforcement = "evaluate"
-      bypass_actors = [
-        {
-          actor_id    = 5
-          actor_type  = "RepositoryRole"
-          bypass_mode = "always"
-        }
-      ]
-      conditions = {
-        include = ["~DEFAULT_BRANCH"]
-        exclude = []
-      }
-
-      rules = {
-        required_status_checks = {
-          required_check                       = []
-          do_not_enforce_on_create             = true
-          strict_required_status_checks_policy = false
-        }
-      }
     }
   ]
 }
