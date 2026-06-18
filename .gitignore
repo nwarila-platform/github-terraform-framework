@@ -116,6 +116,9 @@
 !/terraform/tests/fixtures/good-archived/
 !/terraform/tests/fixtures/good-archived/private/
 !/terraform/tests/fixtures/good-archived/private/repo.yml
+!/terraform/tests/fixtures/good-advisory-checks/
+!/terraform/tests/fixtures/good-advisory-checks/public/
+!/terraform/tests/fixtures/good-advisory-checks/public/repo.yml
 !/terraform/tests/fixtures/good-empty/
 !/terraform/tests/fixtures/good-empty/.gitkeep
 !/terraform/tests/fixtures/good-explicit-security-override/

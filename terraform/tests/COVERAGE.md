@@ -118,10 +118,11 @@ terraform test
 | N11 | `license_template = null` default (Finding 22: MIT removal) | ✅ | `normalization.tftest.hcl::license_template_defaults_null_not_MIT` + default sweep |
 | N12 | Branch source ordering (Finding 21) — multi-branch | ✅ | `normalization.tftest.hcl::multi_branch_sources_all_from_default_not_serially` |
 | N13 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
-| N14 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
-| N15 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
+| N14 | Repo default rulesets applied when no YAML rules; advisory ruleset omitted when unset | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
+| N15 | `advisory_checks` materializes the evaluate-mode CI Status Advisory ruleset | ✅ | `normalization.tftest.hcl::good_advisory_checks_materializes_evaluate_ruleset` |
+| N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
 
-**Normalization coverage: 15 / 15 ≈ 100%.**
+**Normalization coverage: 16 / 16 ≈ 100%.**
 
 ## `for_each` filter regressions
 

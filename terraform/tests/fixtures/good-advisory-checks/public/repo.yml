@@ -1,0 +1,6 @@
+advisory-checks-repo:
+  description: "Public repo with advisory required status checks for terraform test coverage."
+  visibility: public
+  advisory_checks:
+    - "lint / advisory"
+    - "build / advisory"

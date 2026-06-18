@@ -71,13 +71,14 @@
     - [10.3.4 `require_last_push_approval`](#1034-require_last_push_approval)
     - [10.3.5 `required_approving_review_count`](#1035-required_approving_review_count)
     - [10.3.6 `required_review_thread_resolution`](#1036-required_review_thread_resolution)
-  - [10.4 Ruleset: Release Tag Protection](#104-ruleset-release-tag-protection)
-    - [10.4.1 `deletion`](#1041-deletion)
-    - [10.4.2 `non_fast_forward`](#1042-non_fast_forward)
-    - [10.4.3 `required_signatures`](#1043-required_signatures)
-  - [10.5 Ruleset: Bypass Actors](#105-ruleset-bypass-actors)
-  - [10.6 Ruleset: Conditions](#106-ruleset-conditions)
-  - [10.7 Rules Not Enabled by Default (and Why)](#107-rules-not-enabled-by-default-and-why)
+  - [10.4 Ruleset: CI Status Advisory](#104-ruleset-ci-status-advisory)
+  - [10.5 Ruleset: Release Tag Protection](#105-ruleset-release-tag-protection)
+    - [10.5.1 `deletion`](#1051-deletion)
+    - [10.5.2 `non_fast_forward`](#1052-non_fast_forward)
+    - [10.5.3 `required_signatures`](#1053-required_signatures)
+  - [10.6 Ruleset: Bypass Actors](#106-ruleset-bypass-actors)
+  - [10.7 Ruleset: Conditions](#107-ruleset-conditions)
+  - [10.8 Rules Not Enabled by Default (and Why)](#108-rules-not-enabled-by-default-and-why)
 - [11. Terraform Resource Lifecycle](#11-terraform-resource-lifecycle)
 - [12. Properties Intentionally Omitted](#12-properties-intentionally-omitted)
 - [13. Per-Repository Deviation Policy](#13-per-repository-deviation-policy)
@@ -836,7 +837,27 @@ Requires all review conversation threads to be resolved before merging.
 
 **Recommendation**: `true`. Unresolved review threads indicate open questions or concerns. Merging with unresolved threads means merging code that hasn't been fully vetted. This is a quality gate — every piece of feedback must be explicitly acknowledged (resolved or addressed).
 
-### 10.4 Ruleset: Release Tag Protection
+### 10.4 Ruleset: CI Status Advisory
+
+**Name**: `CI Status Advisory`
+**Target**: `branch`
+**Enforcement**: `evaluate`
+**Scope**: `~DEFAULT_BRANCH`
+**Bypass**: Repository Admins (`actor_id: 5`, `actor_type: RepositoryRole`, `bypass_mode: always`)
+**Materialization**: only when a repo sets top-level `advisory_checks`
+
+This ruleset gives repositories a dry-run required-status-checks tier before those checks become merge-blocking. The rule is omitted entirely when `advisory_checks` is absent or empty, so the baseline remains quiet for repositories that have not opted in.
+
+```yaml
+advisory_checks:
+  - "Terraform Framework Tests"
+```
+
+Each string becomes a `required_status_checks.required_check.context` entry with `integration_id = null`, `do_not_enforce_on_create = true`, and `strict_required_status_checks_policy = false`. Because the ruleset enforcement is `evaluate`, GitHub evaluates and reports the would-be requirement without blocking merges.
+
+The active tier remains separate: `required_checks` injects the same kind of contexts into the `Pull Request Gate` ruleset, whose enforcement is `active`. Promotion from burn-in to enforcement is therefore an explicit YAML move from `advisory_checks` to `required_checks`.
+
+### 10.5 Ruleset: Release Tag Protection
 
 **Name**: `Release Tag Protection`
 **Target**: `tag`
@@ -848,7 +869,7 @@ Protects every tag from silent replacement, deletion, or unsigned creation. Publ
 
 Tag creation is intentionally left unrestricted so the normal release workflow works without bypass. The three enabled rules below close the drift vectors that matter.
 
-#### 10.4.1 `deletion`
+#### 10.5.1 `deletion`
 
 | | |
 |---|---|
@@ -859,7 +880,7 @@ Prevents deletion of any tag without bypass. Deleting a published release tag br
 
 Admin bypass is deliberate: the owner may need to delete a tag that accidentally embedded a leaked secret, was cut from the wrong SHA, or predates a public release decision.
 
-#### 10.4.2 `non_fast_forward`
+#### 10.5.2 `non_fast_forward`
 
 | | |
 |---|---|
@@ -868,7 +889,7 @@ Admin bypass is deliberate: the owner may need to delete a tag that accidentally
 
 Prevents force-updating a tag to point at a different commit. Without this rule, `git tag -f v1.2.3 <new-sha> && git push --force origin v1.2.3` silently re-points the tag, and consumers that re-pull the same tag name receive different bytes than before. This is the classic supply-chain attack vector for tag-based distribution.
 
-#### 10.4.3 `required_signatures`
+#### 10.5.3 `required_signatures`
 
 | | |
 |---|---|
@@ -879,9 +900,9 @@ Requires the tag (and the commit it points at) to carry a verified GPG, SSH, or 
 
 **Release-please / release-bot note**: release-automation bots must be configured to sign the tags they produce, either via a committed signing key or a GitHub App identity. An unsigned bot-created tag will be rejected by this rule. This is intentional — bot-authored releases carry the same supply-chain weight as human-authored ones.
 
-### 10.5 Ruleset: Bypass Actors
+### 10.6 Ruleset: Bypass Actors
 
-The Pull Request Gate and Release Tag Protection rulesets include a bypass actor for Repository Admins:
+The baseline rulesets include a bypass actor for Repository Admins:
 
 ```yaml
 bypass_actors:
@@ -890,7 +911,7 @@ bypass_actors:
     bypass_mode: always
 ```
 
-**Actor ID `5`** = Repository Admin role. This is essential for a solo developer account — without it, no one could merge PRs (since you can't approve your own PR) and no one could perform emergency tag remediation. The bypass is scoped to the Pull Request Gate and Release Tag Protection; the Default Branch Protection ruleset has **no bypass actors**, meaning even admins cannot force-push or delete the default branch.
+**Actor ID `5`** = Repository Admin role. This is essential for a solo developer account - without it, no one could merge PRs (since you can't approve your own PR) and no one could perform emergency branch, tag, or status-check remediation. The baseline still governs non-admin contributors normally.
 
 **Available Actor IDs**:
 
@@ -907,9 +928,9 @@ bypass_actors:
 - `pull_request`: Can only bypass during PR merges
 - `exempt`: Exempt from the rule entirely
 
-### 10.6 Ruleset: Conditions
+### 10.7 Ruleset: Conditions
 
-The Default Branch Protection and Pull Request Gate rulesets target `~DEFAULT_BRANCH` with no exclusions:
+The branch-target baseline rulesets target `~DEFAULT_BRANCH` with no exclusions:
 
 ```yaml
 conditions:
@@ -935,11 +956,11 @@ conditions:
 
 `~ALL` on a tag-target ruleset matches every tag. Repositories that want to restrict the ruleset to a subset (e.g., only `v*` tags) should override `rules[*].conditions` in their YAML.
 
-### 10.7 Rules Not Enabled by Default (and Why)
+### 10.8 Rules Not Enabled by Default (and Why)
 
 | Rule | Why Not Default | When to Enable |
 |------|----------------|----------------|
-| `required_status_checks` | No CI/CD workflows defined yet globally | Per-repo when CI pipelines exist |
+| Active `required_status_checks` | No CI/CD workflows are globally valid for every repo | Burn in with `advisory_checks`, then promote exact contexts to `required_checks` |
 | `required_code_scanning` | Requires CodeQL or other scanning tool setup | When code scanning Actions are configured |
 | `required_deployments` | No deployment environments defined | When repos have deployment pipelines |
 | `merge_queue` | Overkill for solo developer | When multiple contributors submit concurrent PRs |
