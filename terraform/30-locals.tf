@@ -56,7 +56,7 @@ locals {
     "vulnerability_alerts", "dependabot_security_updates",
     "pages", "security_and_analysis", "template",
     "branches", "rules", "actions", "environments",
-    "codeowners", "required_checks", "advisory_checks",
+    "codeowners", "required_checks",
   ])
 
   # Allowed keys for nested object types. These are checked in addition to
@@ -631,10 +631,6 @@ locals {
       # (the default) means no change — CI stays advisory, as before.
       required_checks = try(repository.required_checks, [])
 
-      # Opt-in advisory status checks. These materialize the CI Status
-      # Advisory ruleset in evaluate mode without affecting PR mergeability.
-      advisory_checks = try(repository.advisory_checks, [])
-
       # Effective CODEOWNERS resolution (Finding 1).
       #
       # Precedence:
@@ -887,19 +883,15 @@ locals {
             }
 
             # Precedence:
-            #   1. CI Status Advisory injects top-level `advisory_checks`.
-            #   2. An explicit required_status_checks rule in the repo YAML wins.
-            #   3. Otherwise, if the repo opted in via top-level `required_checks`
+            #   1. An explicit required_status_checks rule in the repo YAML wins.
+            #   2. Otherwise, if the repo opted in via top-level `required_checks`
             #      AND this ruleset carries the pull_request rule (the PR Gate),
             #      inject those contexts as a required_status_checks rule.
-            #   4. Otherwise null (advisory CI, unchanged baseline behavior).
+            #   3. Otherwise null (advisory CI, unchanged baseline behavior).
             # do_not_enforce_on_create=true so branch creation is never blocked
             # by a not-yet-reported check.
             required_status_checks = (
-              try(rule.rules.required_status_checks, null) != null && (
-                coalesce(try(rule.name, null), "") != "CI Status Advisory"
-                || length(try(rule.rules.required_status_checks.required_check, [])) > 0
-                ) ? {
+              try(rule.rules.required_status_checks, null) != null ? {
                 required_check = [
                   for required_check in try(rule.rules.required_status_checks.required_check, []) : {
                     context        = required_check.context
@@ -909,27 +901,16 @@ locals {
                 strict_required_status_checks_policy = coalesce(try(rule.rules.required_status_checks.strict_required_status_checks_policy, null), false)
                 do_not_enforce_on_create             = coalesce(try(rule.rules.required_status_checks.do_not_enforce_on_create, null), false)
                 } : (
-                coalesce(try(rule.name, null), "") == "CI Status Advisory" && length(repository.advisory_checks) > 0 ? {
+                try(rule.rules.pull_request, null) != null && length(repository.required_checks) > 0 ? {
                   required_check = [
-                    for context in repository.advisory_checks : {
+                    for context in repository.required_checks : {
                       context        = context
                       integration_id = null
                     }
                   ]
-                  strict_required_status_checks_policy = coalesce(try(rule.rules.required_status_checks.strict_required_status_checks_policy, null), false)
-                  do_not_enforce_on_create             = coalesce(try(rule.rules.required_status_checks.do_not_enforce_on_create, null), true)
-                  } : (
-                  try(rule.rules.pull_request, null) != null && length(repository.required_checks) > 0 ? {
-                    required_check = [
-                      for context in repository.required_checks : {
-                        context        = context
-                        integration_id = null
-                      }
-                    ]
-                    strict_required_status_checks_policy = false
-                    do_not_enforce_on_create             = true
-                  } : null
-                )
+                  strict_required_status_checks_policy = false
+                  do_not_enforce_on_create             = true
+                } : null
               )
             )
 
@@ -972,10 +953,6 @@ locals {
 
         # Only generate rulesets if the repository defines them
         if length(repository.rules) > 0 && (
-          coalesce(try(rule.name, null), "") != "CI Status Advisory"
-          || length(repository.advisory_checks) > 0
-          || length(try(rule.rules.required_status_checks.required_check, [])) > 0
-          ) && (
           coalesce(try(rule.target, null), "branch") != "push"
           || (
             var.github_supports_push_rulesets

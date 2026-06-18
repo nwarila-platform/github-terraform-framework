@@ -259,91 +259,15 @@ run "good_minimal_produces_expected_resource_counts" {
     error_message = "good-minimal should produce exactly 1 repository"
   }
 
-  # good-minimal has no rules and no advisory_checks, so only the three
-  # active baseline rulesets materialize from var.repo_default_rules.
+  # good-minimal has no rules, so the default ruleset set (3 rulesets)
+  # from var.repo_default_rules applies.
   assert {
     condition     = length(output.branch_rulesets) == 3
-    error_message = "good-minimal should produce only the 3 active default rulesets (Branch Safety + Pull Request Gate + Release Tag Protection)"
-  }
-
-  assert {
-    condition     = !contains([for _, ruleset in output.branch_rulesets : ruleset.name], "CI Status Advisory")
-    error_message = "good-minimal must not materialize the CI Status Advisory ruleset without advisory_checks"
+    error_message = "good-minimal should produce the 3 default rulesets (Branch Safety + Pull Request Gate + Release Tag Protection)"
   }
 }
 
 #endregion --- [ good-minimal resource count smoke ] ----------------------------------------- #
-
-#region ------ [ advisory_checks default ruleset injection ] --------------------------------- #
-
-run "good_advisory_checks_materializes_evaluate_ruleset" {
-  command = plan
-
-  variables {
-    repo_yaml_path = "tests/fixtures/good-advisory-checks"
-  }
-
-  assert {
-    condition     = length(output.validation_errors) == 0
-    error_message = "good-advisory-checks fixture produced validation errors: ${join(" | ", output.validation_errors)}"
-  }
-
-  assert {
-    condition     = length(output.branch_rulesets) == 4
-    error_message = "advisory_checks should materialize the 3 active defaults plus the CI Status Advisory ruleset"
-  }
-
-  assert {
-    condition     = contains(keys(output.branch_rulesets), "advisory-checks-repo-rules-3")
-    error_message = "CI Status Advisory should keep the default ruleset index 3 when materialized"
-  }
-
-  assert {
-    condition = (
-      output.branch_rulesets["advisory-checks-repo-rules-3"].name == "CI Status Advisory"
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].target == "branch"
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].enforcement == "evaluate"
-    )
-    error_message = "CI Status Advisory must be a branch ruleset in evaluate enforcement mode"
-  }
-
-  assert {
-    condition = (
-      length(output.branch_rulesets["advisory-checks-repo-rules-3"].include) == 1
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].include[0] == "~DEFAULT_BRANCH"
-      && length(output.branch_rulesets["advisory-checks-repo-rules-3"].exclude) == 0
-    )
-    error_message = "CI Status Advisory must target only the default branch"
-  }
-
-  assert {
-    condition = (
-      length(output.branch_rulesets["advisory-checks-repo-rules-3"].bypass_actors) == 1
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].bypass_actors[0].actor_id == 5
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].bypass_actors[0].actor_type == "RepositoryRole"
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].bypass_actors[0].bypass_mode == "always"
-    )
-    error_message = "CI Status Advisory must carry the same Repository Admin bypass actor as the active baselines"
-  }
-
-  assert {
-    condition = (
-      output.branch_rulesets["advisory-checks-repo-rules-3"].rules.required_status_checks.do_not_enforce_on_create == true
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].rules.required_status_checks.strict_required_status_checks_policy == false
-      && length(output.branch_rulesets["advisory-checks-repo-rules-3"].rules.required_status_checks.required_check) == 2
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].rules.required_status_checks.required_check[0].context == "lint / advisory"
-      && output.branch_rulesets["advisory-checks-repo-rules-3"].rules.required_status_checks.required_check[1].context == "build / advisory"
-    )
-    error_message = "CI Status Advisory must populate required_status_checks from advisory_checks with non-strict create-tolerant policy"
-  }
-
-  assert {
-    condition     = output.branch_rulesets["advisory-checks-repo-rules-1"].rules.required_status_checks == null
-    error_message = "advisory_checks must not inject required_status_checks into the active Pull Request Gate"
-  }
-}
-
-#endregion --- [ advisory_checks default ruleset injection ] --------------------------------- #
 
 #region ------ [ Default value sweep (regression guard on repo_setting_defaults) ] ----------- #
 
