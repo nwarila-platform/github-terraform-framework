@@ -158,6 +158,11 @@ jobs:
           persist-credentials: false
 
       - name: Fetch private repo definitions from S3
+        # plan_only has no AWS credentials (OIDC is skipped); the runner's committed
+        # terraform/private/ is still overlaid below, so the dry-run plan stays faithful
+        # for committed private repos. S3-only private definitions are intentionally
+        # skipped on plan_only dry-runs.
+        if: ${{ !inputs.plan_only }}
         env:
           PRIVATE_FILES: ${{ inputs.private_repos_files }}
           PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
@@ -246,6 +251,13 @@ jobs:
             -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
+      # plan_only SAFETY INVARIANT: the two "Adopt ... into state" steps below run
+      # `terraform import`, which writes to whatever backend the preceding init configured.
+      # They are intentionally UNGATED so the dry-run plan faithfully reflects reconciliation
+      # (not misleading creates). This is safe under plan_only ONLY because the
+      # `terraform init (plan_only local state)` step ran `-backend=false` (local ephemeral
+      # state) and the S3-backend init was skipped. DO NOT allow the S3-backend init to run
+      # under plan_only, or these imports would write to the canonical S3 tfstate.
       - name: Adopt existing repositories into state
         working-directory: framework/terraform
         env:
