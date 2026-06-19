@@ -94,6 +94,14 @@ on:
         required: false
         type: string
         default: ""
+      plan_only:
+        description: |
+          When true, run init/import/validate/plan against an ISOLATED ephemeral
+          state (terraform init -backend=false) and STOP before apply. The canonical
+          S3 tfstate is never read or written. Used by pull-request dry-runs.
+        required: false
+        type: boolean
+        default: false
     secrets:
       aws_role_arn:
         description: ARN of the AWS role to assume via OIDC.
@@ -126,6 +134,7 @@ jobs:
       TF_VAR_github_token: ${{ secrets.gh_token }}
     steps:
       - name: Initialize temporary AWS credentials (OIDC)
+        if: ${{ !inputs.plan_only }}
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
           role-to-assume: ${{ secrets.aws_role_arn }}
@@ -149,6 +158,11 @@ jobs:
           persist-credentials: false
 
       - name: Fetch private repo definitions from S3
+        # plan_only has no AWS credentials (OIDC is skipped); the runner's committed
+        # terraform/private/ is still overlaid below, so the dry-run plan stays faithful
+        # for committed private repos. S3-only private definitions are intentionally
+        # skipped on plan_only dry-runs.
+        if: ${{ !inputs.plan_only }}
         env:
           PRIVATE_FILES: ${{ inputs.private_repos_files }}
           PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
@@ -211,7 +225,15 @@ jobs:
           terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
 
-      - name: Terraform init
+      - name: Terraform init (plan_only local state)
+        if: ${{ inputs.plan_only }}
+        working-directory: framework/terraform
+        run: |
+          set -euo pipefail
+          terraform init -backend=false
+
+      - name: Terraform init (S3 backend)
+        if: ${{ !inputs.plan_only }}
         working-directory: framework/terraform
         env:
           BACKEND_BUCKET: ${{ secrets.backend_bucket }}
@@ -229,6 +251,13 @@ jobs:
             -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
+      # plan_only SAFETY INVARIANT: the two "Adopt ... into state" steps below run
+      # `terraform import`, which writes to whatever backend the preceding init configured.
+      # They are intentionally UNGATED so the dry-run plan faithfully reflects reconciliation
+      # (not misleading creates). This is safe under plan_only ONLY because the
+      # `terraform init (plan_only local state)` step ran `-backend=false` (local ephemeral
+      # state) and the S3-backend init was skipped. DO NOT allow the S3-backend init to run
+      # under plan_only, or these imports would write to the canonical S3 tfstate.
       - name: Adopt existing repositories into state
         working-directory: framework/terraform
         env:
@@ -424,6 +453,19 @@ jobs:
           terraform plan -out=tfplan
           terraform show -no-color tfplan > plan-output.txt
 
+      - name: Publish plan to job summary
+        if: ${{ inputs.plan_only }}
+        working-directory: framework/terraform
+        run: |
+          set -euo pipefail
+          {
+            echo '### Terraform plan (plan_only dry-run)';
+            echo '```';
+            # Cap to keep the summary within GitHub's size limit.
+            head -c 900000 plan-output.txt;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Archive plan output
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -433,6 +475,7 @@ jobs:
           retention-days: 90
 
       - name: Terraform apply
+        if: ${{ !inputs.plan_only }}
         working-directory: framework/terraform
         run: terraform apply -auto-approve tfplan
 
