@@ -146,20 +146,19 @@ jobs:
 
       - name: Install zizmor
         # renovate: datasource=pypi depName=zizmor
-        run: python -m pip install --no-cache-dir zizmor==1.24.1
+        run: python -m pip install --no-cache-dir zizmor==1.25.2
 
       - name: Run zizmor
-        # Emit SARIF for the GitHub Security tab; --persona regular catches
-        # findings most projects care about (omit auditor-only false positives).
+        # Emit SARIF for the GitHub Security tab; pedantic matches the repo audit gate.
         env:
           ZIZMOR_ADVISORY: ${{ inputs.zizmor_advisory }}
         run: |
           set -o pipefail
-          zizmor --format sarif --persona regular .github/workflows/ \
+          zizmor --format sarif --persona pedantic .github/workflows/ \
             > zizmor.sarif || rc=$?
           echo "zizmor exit code: ${rc:-0}"
           # Re-run for human-readable output in the log.
-          zizmor --persona regular .github/workflows/ || true
+          zizmor --persona pedantic .github/workflows/ || true
           if [ "${ZIZMOR_ADVISORY}" = "true" ]; then
             echo "zizmor in advisory mode — findings are visible in the run "
             echo "log and on the Security tab but do not fail the job."

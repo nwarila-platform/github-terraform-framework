@@ -24,15 +24,12 @@
 !/DESIGN.md
 !/LICENSE
 !/README.md
-!/REVIEW_REMEDIATION_PLAN.md
-!/PATCH_ANALYSIS_PLAN.md
 
 # Keep Terraform module files.
 !/terraform/
 !/terraform/.terraform.lock.hcl
 !/terraform/00-providers.tf
 !/terraform/01-providers-github.tf
-!/terraform/02-providers-aws.tf
 !/terraform/11-variables.github.tf
 !/terraform/30-locals.tf
 !/terraform/41-resources-github.tf
@@ -116,6 +113,9 @@
 !/terraform/tests/fixtures/good-archived/
 !/terraform/tests/fixtures/good-archived/private/
 !/terraform/tests/fixtures/good-archived/private/repo.yml
+!/terraform/tests/fixtures/good-custom-branch-policy/
+!/terraform/tests/fixtures/good-custom-branch-policy/private/
+!/terraform/tests/fixtures/good-custom-branch-policy/private/repo.yml
 !/terraform/tests/fixtures/good-empty/
 !/terraform/tests/fixtures/good-empty/.gitkeep
 !/terraform/tests/fixtures/good-explicit-security-override/

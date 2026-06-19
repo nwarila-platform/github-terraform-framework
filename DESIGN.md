@@ -4,9 +4,9 @@
 >
 > **Audience**: Current and future maintainers who need to understand *why* every default was chosen, not just *what* it is.
 >
-> **Provider**: [`integrations/github` v6.10.2](https://registry.terraform.io/providers/integrations/github/latest/docs)
+> **Provider**: [`integrations/github` v6.12.1](https://registry.terraform.io/providers/integrations/github/latest/docs)
 >
-> **Last Updated**: 2026-03-18
+> **Last Updated**: 2026-06-06
 
 ---
 
@@ -993,19 +993,10 @@ The framework's power comes from strong defaults with explicit opt-outs. Deviati
 2. **Justified**: Add a YAML comment explaining *why*
 3. **Auditable**: The diff between a repo's YML and the defaults is the repo's "deviation surface"
 
-**Current justified deviations**:
-
-| Repository | Deviation | Justification |
-|------------|-----------|---------------|
-| `github-sandbox` | `visibility: private` | Experimental workspace, not portfolio-ready |
-| `screenshot-gpt-blinkstick` | `visibility: private` | Personal project, not portfolio material |
-| `Personal` | `visibility: private` | Personal notes/config |
-| `Resume` | `visibility: private` | Contains personal information |
-| `.github` | Special repo | Account-level default community health files and templates; must be public for GitHub to apply defaults across repositories |
-| `proxmox-terraform-framework` | `pages: {...}` | Serves documentation site via GitHub Pages |
-| `NWarila` | Profile repo | GitHub profile README — special repo with unique purpose |
-
-Any other deviations from defaults should be documented in this table when added.
+This root module does not track live repository YAML definitions. Runner
+repositories provide the `terraform/repos/{public,private}/` overlays and own
+their deviation records. Keep deviation tables in the runner or inventory
+repository that carries the YAML, not in this reusable framework.
 
 ---
 
@@ -1123,11 +1114,11 @@ The `locals_debug` output is marked `sensitive = true` to prevent exposure of re
 |---|---|
 | **Governance** | [SLSA: Build Integrity](https://slsa.dev/spec/v1.0/requirements#build-requirements), [OpenSSF Scorecard: Pinned-Dependencies](https://github.com/ossf/scorecard/blob/main/docs/checks.md#pinned-dependencies) |
 
-All provider versions are **exact-pinned** (e.g., `version = "6.10.2"`, not `version = "~> 6.10"`):
+All provider versions are **exact-pinned** (e.g., `version = "6.12.1"`, not `version = "~> 6.12"`):
 
-- **`integrations/github`**: `6.10.2`
-- **`hashicorp/aws`**: `6.28.0`
-- **Terraform itself**: `1.14.3` (via `required_version`)
+- **`integrations/github`**: `6.12.1`
+- **`hashicorp/time`**: `0.12.1`
+- **Terraform itself**: `1.15.4` (via `required_version`)
 
 **Rationale**: Exact pinning prevents supply chain attacks where a compromised provider version is automatically pulled during `terraform init`. Range constraints (`~>`, `>=`) allow automatic upgrades that could introduce malicious code. Exact pins require explicit, reviewable version bumps — each upgrade is a deliberate, auditable decision.
 
@@ -1250,4 +1241,6 @@ Summary table of what works where:
 
 When in doubt, the rule for **private + Free** is: **only `wait_timer = 0`, `deployment_branch_policy`, env vars, and env secrets actually enforce**. Set `can_admins_bypass: true` and omit reviewers and non-zero wait timers. Anything else is either silently ignored or fails apply with the generic 422.
 
-The repo YAMLs in this account that fall under that constraint should reflect this directly — see `herowars-sim.yml` for an example of `can_admins_bypass: true` on every environment with a comment explaining why.
+Runner-owned repo YAMLs that fall under that constraint should reflect this
+directly with `can_admins_bypass: true` on private Free-plan environments and
+a local comment explaining why.

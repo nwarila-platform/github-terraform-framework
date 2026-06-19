@@ -110,6 +110,24 @@ run "repo_with_environments_plans_clean" {
   }
 }
 
+run "custom_environment_branch_policy_plans_clean" {
+  command = plan
+
+  variables {
+    repo_yaml_path = "tests/fixtures/good-custom-branch-policy"
+  }
+
+  assert {
+    condition     = length(output.validation_errors) == 0
+    error_message = "custom environment branch policy fixture produced validation errors: ${join(" | ", output.validation_errors)}"
+  }
+
+  assert {
+    condition     = github_repository_environment_deployment_policy.environment["good-custom-branch-policy-repo::production::00::release/*"].branch_pattern == "release/*"
+    error_message = "custom environment branch policy fixture must produce a release/* deployment policy"
+  }
+}
+
 #endregion --- [ Interaction coverage: environments ] ---------------------------------------- #
 
 #region ------ [ Archived repo skip behavior ] ----------------------------------------------- #

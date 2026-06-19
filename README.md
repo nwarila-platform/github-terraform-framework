@@ -37,7 +37,7 @@ For the **fine-grained PAT permission matrix** (which permission each managed re
 
 ## Documentation
 
-This repository follows the [Diátaxis](https://diataxis.fr) framework, adopted org-wide by [ADR-0002](docs/decision-records/org/0002-adopt-diataxis-documentation-framework.md). Long-form documentation lives under [`docs/`](docs/) split into reference, how-to, and explanation quadrants. ADRs live at [`docs/decision-records/`](docs/decision-records/) per [ADR-0001](docs/decision-records/org/0001-use-architecture-decision-records.md), split into `org/` (mirror of the nwarila-platform baseline) and `repo/` (repository-specific, currently empty).
+This repository follows the [Diátaxis](https://diataxis.fr) framework, adopted org-wide by [ADR-0002](docs/decision-records/org/0002-adopt-diataxis-documentation-framework.md). Long-form documentation lives under [`docs/`](docs/) split into reference, how-to, and explanation quadrants. ADRs live at [`docs/decision-records/`](docs/decision-records/) per [ADR-0001](docs/decision-records/org/0001-use-architecture-decision-records.md), split into `org/` (mirror of the nwarila-platform baseline), `template/` (inherited Terraform framework decisions), and `repo/` (repository-specific, currently empty).
 
 Start at [`docs/README.md`](docs/README.md) for the index. The current `DESIGN.md` predates ADR-0002 and is deferred for a separate re-shelving pass.
 
