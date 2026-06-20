@@ -15,7 +15,8 @@ name: Reusable Terraform Deploy
 # 3. Imports any already-existing repository and repository-ruleset resources
 #    into state before planning. This lets the framework adopt a pre-existing
 #    fleet without trying to create resources that already exist.
-# 4. Runs terraform init/plan/apply against the assembled tree.
+# 4. Runs terraform init/plan against the assembled tree; apply only runs when
+#    the caller explicitly sets `apply: true`.
 #
 # S3 layout convention
 # --------------------
@@ -99,6 +100,14 @@ on:
           When true, run init/import/validate/plan against an ISOLATED ephemeral
           state (terraform init -backend=false) and STOP before apply. The canonical
           S3 tfstate is never read or written. Used by pull-request dry-runs.
+        required: false
+        type: boolean
+        default: false
+      apply:
+        description: |
+          When true, apply the real-state Terraform plan. Leave false to produce
+          and upload a real-state plan without changing managed resources.
+          Ignored when plan_only is true.
         required: false
         type: boolean
         default: false
@@ -484,7 +493,7 @@ jobs:
           retention-days: 90
 
       - name: Terraform apply
-        if: ${{ !inputs.plan_only }}
+        if: ${{ inputs.apply && !inputs.plan_only }}
         working-directory: framework/terraform
         run: terraform apply -auto-approve tfplan
 
