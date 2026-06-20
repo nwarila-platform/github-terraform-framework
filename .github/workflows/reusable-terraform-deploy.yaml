@@ -230,7 +230,16 @@ jobs:
         working-directory: framework/terraform
         run: |
           set -euo pipefail
-          terraform init -backend=false
+          # plan_only: replace the S3 backend with a local one so the ungated import-adoption
+          # steps can write to EPHEMERAL local state. The canonical S3 tfstate is never
+          # configured or reached here; OIDC/AWS creds are also skipped under plan_only (two
+          # independent guards). The whole framework/ workspace is deleted in Cleanup.
+          cat > 00-providers.tf <<'EOF'
+          terraform {
+            backend "local" {}
+          }
+          EOF
+          terraform init
 
       - name: Terraform init (S3 backend)
         if: ${{ !inputs.plan_only }}
@@ -255,8 +264,8 @@ jobs:
       # `terraform import`, which writes to whatever backend the preceding init configured.
       # They are intentionally UNGATED so the dry-run plan faithfully reflects reconciliation
       # (not misleading creates). This is safe under plan_only ONLY because the
-      # `terraform init (plan_only local state)` step ran `-backend=false` (local ephemeral
-      # state) and the S3-backend init was skipped. DO NOT allow the S3-backend init to run
+      # `terraform init (plan_only local state)` initialized an ephemeral local backend,
+      # and the S3-backend init was skipped. DO NOT allow the S3-backend init to run
       # under plan_only, or these imports would write to the canonical S3 tfstate.
       - name: Adopt existing repositories into state
         working-directory: framework/terraform
