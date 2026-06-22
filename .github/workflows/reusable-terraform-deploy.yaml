@@ -5,10 +5,10 @@ name: Reusable Terraform Deploy
 #
 # Deploy flow
 # -----------
-# 1. Optionally downloads private repo definitions from S3 via `aws s3 cp`,
-#    one file per name listed in `private_repos_files`. Files are copied
-#    into the runner's `terraform/private/` directory (additive; pre-existing
-#    files in that directory are preserved).
+# 1. Optionally downloads private repo definitions from S3 via additive
+#    `aws s3 sync` of the configured private-repo prefix. Matching YAML files
+#    are copied into the runner's `terraform/private/` directory (additive;
+#    pre-existing files in that directory are preserved).
 # 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
@@ -22,7 +22,7 @@ name: Reusable Terraform Deploy
 # --------------------
 # Private files come from:
 #
-#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/terraform/private/<filename>
+#   s3://<aws_s3_bucket>/<owner-lowercased>/<repo-name>/terraform/private/<*.yml|*.yaml>
 #
 # `<owner-lowercased>` = `${{ github.repository_owner }}` lowercased (so
 # `NWarila` becomes `nwarila`, `the-hero-wars-guys` is unchanged, etc.).
@@ -46,7 +46,6 @@ name: Reusable Terraform Deploy
 #       with:
 #         github_owner: ${{ github.repository_owner }}
 #         terraform_version: "1.15.4"
-#         private_repos_files: ${{ vars.PRIVATE_REPOS_FILES }}
 #       secrets:
 #         aws_role_arn:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
 #         aws_region:      ${{ secrets.AWS_REGION }}
@@ -73,24 +72,11 @@ on:
         required: false
         type: string
         default: ""
-      private_repos_files:
-        description: |
-          Newline-separated list of private-repo definition filenames to
-          download from S3 before deploy. Each line is a bare filename
-          (e.g. `Personal.yml`); the reusable constructs the full S3 URL
-          via the convention `s3://<aws_s3_bucket>/<owner-lc>/<repo>/terraform/private/`.
-          Blank lines and `#`-prefixed comments are ignored. Empty input
-          (or input set to just whitespace) skips the S3 step entirely;
-          the runner's committed `terraform/private/` is still overlaid onto
-          the framework.
-        required: false
-        type: string
-        default: ""
       private_repos_prefix:
         description: |
-          Override the S3 prefix from which private files are copied.
+          Override the S3 prefix from which private repo definition files are synced.
           Defaults to `<owner-lowercased>/<repo>/terraform/private`. The bucket is
-          always `secrets.aws_s3_bucket`. Override only for non-standard
+          always `secrets.backend_bucket`. Override only for non-standard
           layouts.
         required: false
         type: string
@@ -173,19 +159,10 @@ jobs:
         # skipped on plan_only dry-runs.
         if: ${{ !inputs.plan_only }}
         env:
-          PRIVATE_FILES: ${{ inputs.private_repos_files }}
           PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
           BUCKET: ${{ secrets.backend_bucket }}
         run: |
           set -euo pipefail
-          # Trim and check whether any non-blank, non-comment lines exist.
-          stripped="$(printf '%s\n' "${PRIVATE_FILES}" | sed 's/#.*//' | tr -d '[:space:]')"
-          if [ -z "${stripped}" ]; then
-            echo "private_repos_files is empty; skipping S3 fetch."
-            exit 0
-          fi
-
-          # Resolve the S3 prefix.
           if [ -n "${PRIVATE_PREFIX_OVERRIDE}" ]; then
             prefix="${PRIVATE_PREFIX_OVERRIDE}"
           else
@@ -198,19 +175,7 @@ jobs:
           dest="runner/terraform/private"
           mkdir -p "${dest}"
 
-          # Download each file. The copy is additive; we never delete files
-          # already present in the directory (e.g. files committed by the
-          # runner repo itself remain).
-          while IFS= read -r line; do
-            entry="${line%%#*}"
-            entry="$(echo "${entry}" | xargs)"
-            [ -z "${entry}" ] && continue
-            aws s3 cp \
-              "s3://${BUCKET}/${prefix}/${entry}" \
-              "${dest}/${entry}" \
-              --only-show-errors
-            echo "fetched ${entry}"
-          done <<< "${PRIVATE_FILES}"
+          aws s3 sync "s3://${BUCKET}/${prefix}/" "${dest}/" --exclude "*" --include "*.yml" --include "*.yaml" --only-show-errors
 
           count="$(find "${dest}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l)"
           echo "private/ now contains ${count} file(s) total (S3-fetched + committed)"
