@@ -156,6 +156,9 @@
 !/terraform/tests/fixtures/good-push-ruleset/
 !/terraform/tests/fixtures/good-push-ruleset/private/
 !/terraform/tests/fixtures/good-push-ruleset/private/repo.yml
+!/terraform/tests/fixtures/good-unmanaged-security-features/
+!/terraform/tests/fixtures/good-unmanaged-security-features/public/
+!/terraform/tests/fixtures/good-unmanaged-security-features/public/repo.yml
 !/terraform/tests/fixtures/good-with-environments/
 !/terraform/tests/fixtures/good-with-environments/private/
 !/terraform/tests/fixtures/good-with-environments/private/repo.yml

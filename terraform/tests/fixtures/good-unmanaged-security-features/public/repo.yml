@@ -1,0 +1,6 @@
+unmanaged-security-repo:
+  description: "Repo that leaves selected security_and_analysis features unmanaged."
+  visibility: public
+  unmanaged_security_features:
+    - secret_scanning
+    - secret_scanning_push_protection

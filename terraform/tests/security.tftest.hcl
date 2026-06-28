@@ -338,6 +338,78 @@ run "no_baseline_no_yaml_collapses_security_to_null" {
 
 #endregion --- [ Null baseline collapses security_and_analysis to null ] --------------------- #
 
+#region ------ [ Per-repo unmanaged security features collapse to null ] --------------------- #
+
+run "unmanaged_secret_features_collapse_security_to_null" {
+  command = plan
+
+  variables {
+    repo_yaml_path         = "tests/fixtures/good-unmanaged-security-features"
+    security_baseline_mode = "strict"
+
+    github_security_capabilities = {
+      public = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      private = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+      internal = {
+        advanced_security                     = true
+        code_security                         = true
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = true
+        secret_scanning_non_provider_patterns = true
+      }
+    }
+
+    security_baseline = {
+      public = {
+        advanced_security                     = false
+        code_security                         = false
+        secret_scanning                       = true
+        secret_scanning_push_protection       = true
+        secret_scanning_ai_detection          = false
+        secret_scanning_non_provider_patterns = false
+      }
+      private = {
+        advanced_security                     = false
+        code_security                         = false
+        secret_scanning                       = false
+        secret_scanning_push_protection       = false
+        secret_scanning_ai_detection          = false
+        secret_scanning_non_provider_patterns = false
+      }
+      internal = {
+        advanced_security                     = false
+        code_security                         = false
+        secret_scanning                       = false
+        secret_scanning_push_protection       = false
+        secret_scanning_ai_detection          = false
+        secret_scanning_non_provider_patterns = false
+      }
+    }
+  }
+
+  assert {
+    condition     = output.all_repositories["unmanaged-security-repo"].security_and_analysis == null
+    error_message = "unmanaged secret-scanning features must force security_and_analysis to null so the provider omits the block"
+  }
+}
+
+#endregion --- [ Per-repo unmanaged security features collapse to null ] --------------------- #
+
 #region ------ [ Baseline feature enabled when capability matches ] -------------------------- #
 
 run "baseline_feature_enabled_when_capability_matches" {
@@ -410,6 +482,18 @@ run "baseline_feature_enabled_when_capability_matches" {
   assert {
     condition     = output.all_repositories["example-public-repo"].security_and_analysis.advanced_security == true
     error_message = "baseline demanded advanced_security=true and capability supports it, expected normalized value to be true"
+  }
+
+  assert {
+    condition = output.all_repositories["example-public-repo"].security_and_analysis == {
+      advanced_security                     = true
+      code_security                         = true
+      secret_scanning                       = true
+      secret_scanning_push_protection       = true
+      secret_scanning_ai_detection          = true
+      secret_scanning_non_provider_patterns = true
+    }
+    error_message = "repo without unmanaged_security_features must keep the existing managed security baseline"
   }
 }
 

@@ -510,7 +510,7 @@ These two controls protect against **different failure modes**. `prevent_destroy
 
 ## 7. Security & Analysis
 
-All secret scanning features are enabled **universally** regardless of repository visibility. As of January 2024, GitHub made secret scanning and push protection free for all repositories (public and private). There is no longer a GHAS requirement for these features on private repos. Per [OWASP A02:2021 (Cryptographic Failures)](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/), all repositories handling any form of credentials or configuration must have secret detection enabled.
+Secret scanning and push protection remain the secure default, but availability can vary by owner, plan, and provider API behavior. Repositories that cannot have a `security_and_analysis` feature PATCHed can set `unmanaged_security_features` in their repo YAML to emit Terraform `null` for that feature. This is intentionally different from setting `security_and_analysis.<feature>: false`, which manages the feature as disabled and still sends a provider PATCH. Per [OWASP A02:2021 (Cryptographic Failures)](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/), repositories handling credentials or configuration should use secret detection whenever the account can support it.
 
 ### 7.1 `vulnerability_alerts`
 
@@ -565,25 +565,25 @@ Enables the code security overview and recommendations for the repository.
 
 | | |
 |---|---|
-| **Type** | `bool` |
-| **Default** | `true` (all visibilities) |
+| **Type** | `bool` or unmanaged via `unmanaged_security_features` |
+| **Default** | `true` when baseline and capability permit; unmanaged when listed in repo YAML |
 | **Governance** | [GitHub Docs: Secret Scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning), [OWASP A02:2021: Cryptographic Failures](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/) |
 
 Scans repository contents for known secret patterns (API keys, tokens, certificates).
 
-**Recommendation**: `true` for all repos. Secret scanning is free for both public and private repositories (as of January 2024) and is one of the most impactful security features GitHub offers — it has prevented millions of credential leaks. Leaked secrets in public repos are actively scraped by automated tools within seconds of exposure. Private repos are equally at risk from insider threats and compromised CI/CD pipelines.
+**Recommendation**: `true` wherever the owner/plan/API path supports it. If a repository is rejected when the provider PATCHes secret scanning, set `unmanaged_security_features: ["secret_scanning"]` for that repository so Terraform omits the feature instead of managing it as disabled. Leaked secrets in public repos are actively scraped by automated tools within seconds of exposure. Private repos are equally at risk from insider threats and compromised CI/CD pipelines.
 
 ### 7.6 `secret_scanning_push_protection`
 
 | | |
 |---|---|
-| **Type** | `bool` |
-| **Default** | `true` (all visibilities) |
+| **Type** | `bool` or unmanaged via `unmanaged_security_features` |
+| **Default** | `true` when baseline and capability permit; unmanaged when listed in repo YAML |
 | **Governance** | [GitHub Docs: Push Protection](https://docs.github.com/en/code-security/secret-scanning/introduction/about-push-protection) |
 
 Blocks pushes that contain known secret patterns *before* they enter the repository.
 
-**Recommendation**: `true` for all repos. This is the most critical secret scanning feature — it prevents secrets from ever being committed, rather than detecting them after the fact. Once a secret is in git history, it requires history rewriting to fully remove. Prevention is orders of magnitude better than detection. This applies equally to private repos — a secret committed to a private repo becomes a liability if the repo is ever made public, forked, or accessed by a compromised service account.
+**Recommendation**: `true` wherever the owner/plan/API path supports it. If push protection cannot be PATCHed for a repository, set `unmanaged_security_features: ["secret_scanning_push_protection"]` so Terraform omits it. This is the most critical secret scanning feature because it prevents secrets from ever being committed, rather than detecting them after the fact. Once a secret is in git history, it requires history rewriting to fully remove.
 
 ### 7.7 `secret_scanning_ai_detection`
 

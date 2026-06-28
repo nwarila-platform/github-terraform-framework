@@ -54,7 +54,7 @@ locals {
     "auto_init", "gitignore_template", "license_template",
     "archived", "archive_on_destroy",
     "vulnerability_alerts", "dependabot_security_updates",
-    "pages", "security_and_analysis", "template",
+    "pages", "security_and_analysis", "unmanaged_security_features", "template",
     "branches", "rules", "actions", "environments",
     "codeowners", "required_checks",
   ])
@@ -317,6 +317,14 @@ locals {
     var.security_baseline_mode == "strict" ? local.security_capability_gap_preview : []
   )
 
+  unmanaged_security_feature_errors = flatten([
+    for name, repo in local.repos_from_yaml :
+    try(repo.unmanaged_security_features, null) == null ? [] : [
+      for feat in setsubtract(toset(repo.unmanaged_security_features), local.security_features) :
+      "Repository '${name}' unmanaged_security_features: unknown feature '${feat}'. Allowed: ${jsonencode(tolist(local.security_features))}."
+    ]
+  ])
+
   # Guard against someone writing secrets as a key-value map instead of a
   # list of names. YAML map form (`SECRET_NAME: "value"`) would commit
   # secret material to the repo in plaintext — the framework must reject
@@ -336,6 +344,7 @@ locals {
     local.unsupported_push_ruleset_errors,
     local.auth_config_errors,
     local.security_capability_gap_errors,
+    local.unmanaged_security_feature_errors,
     local.secrets_type_errors,
   )
 }
@@ -567,10 +576,11 @@ locals {
       # Capability-aware security_and_analysis normalization.
       #
       # Precedence (highest wins):
-      #   1. Explicit per-repo YAML (repository.security_and_analysis.<feature>)
-      #   2. var.security_baseline[<visibility>][<feature>] — but ONLY enabled
+      #   1. Per-repo unmanaged_security_features forces listed features to null
+      #   2. Explicit per-repo YAML (repository.security_and_analysis.<feature>)
+      #   3. var.security_baseline[<visibility>][<feature>] — but ONLY enabled
       #      when var.github_security_capabilities[<visibility>][<feature>] is true
-      #   3. null (leave the feature unmanaged)
+      #   4. null (leave the feature unmanaged)
       #
       # In 'strict' mode, a baseline-vs-capability mismatch is already
       # reported as a plan-blocking global validation error, so by the time
@@ -585,21 +595,28 @@ locals {
         : length([
           for feat in local.security_features :
           feat if(
-            try(repository.security_and_analysis[feat], null) != null
-            || (
-              var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
-              && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
+            !contains(try(repository.unmanaged_security_features, []), feat)
+            && (
+              try(repository.security_and_analysis[feat], null) != null
+              || (
+                var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
+                && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
+              )
             )
           )
           ]) == 0 ? null : {
           for feat in local.security_features : feat => (
-            try(repository.security_and_analysis[feat], null) != null
-            ? repository.security_and_analysis[feat]
+            contains(try(repository.unmanaged_security_features, []), feat)
+            ? null
             : (
-              var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
-              && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
-              ? true
-              : null
+              try(repository.security_and_analysis[feat], null) != null
+              ? repository.security_and_analysis[feat]
+              : (
+                var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
+                && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
+                ? true
+                : null
+              )
             )
           )
         }

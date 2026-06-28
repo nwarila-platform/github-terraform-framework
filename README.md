@@ -49,7 +49,17 @@ The framework models GitHub security features as a **visibility-keyed capability
 - `var.security_baseline` — what the framework wants enabled, per visibility. Default is an opinionated enterprise baseline.
 - `var.security_baseline_mode` — `strict` fails plan when the baseline demands a feature the capabilities don't support; `compatibility` emits an advisory preview via a `check` block and leaves unsupported features unmanaged. Default is `compatibility` for non-breaking rollout. Flip to `strict` in the next tagged release after remediating any preview warnings.
 
-Both variables follow the Packer-coherence style: fully typed, fully required, zero `optional()`.
+A repository YAML may set `unmanaged_security_features` to force individual `security_and_analysis` features to Terraform `null`, even when the baseline or an explicit `security_and_analysis` value would otherwise manage them. This is different from `security_and_analysis.<feature>: false`: `false` manages the disabled state and still PATCHes the provider, while `unmanaged_security_features` omits the feature from the provider payload.
+
+```yaml
+example-private-repo:
+  visibility: private
+  unmanaged_security_features:
+    - secret_scanning
+    - secret_scanning_push_protection
+```
+
+These variables follow the Packer-coherence style: fully typed, fully required, zero `optional()`.
 
 ## Regression testing
 
