@@ -87,7 +87,7 @@ variable "security_baseline_mode" {
 }
 
 variable "github_security_capabilities" {
-  description = "Declaration of which GitHub security_and_analysis features the current owner/plan supports, keyed by repository visibility. Fully-required matrix (no optional fields): operators must declare every feature for every visibility to keep the capability contract explicit and auditable. Setting a feature to false means the owner/plan does not have entitlement to enable it on that visibility."
+  description = "Declaration of which GitHub security_and_analysis features the current owner/plan supports, keyed by repository visibility. Fully-required matrix (no optional fields): operators must declare every feature for every visibility to keep the capability contract explicit and auditable. Setting a feature to false means the owner/plan does not have entitlement to enable it on that visibility. If a specific repository must omit a feature despite the matrix, set unmanaged_security_features in that repo YAML."
 
   type = object({
     public = object({
@@ -116,11 +116,11 @@ variable "github_security_capabilities" {
     })
   })
 
-  # GitHub Free baseline for personal accounts and free orgs.
+  # GitHub Free baseline for personal accounts and free orgs. Availability
+  # can still vary by owner, plan, and provider API behavior, so a repository
+  # that cannot PATCH secret scanning can opt out per-repo with
+  # unmanaged_security_features.
   #
-  # As of January 2024, GitHub made secret_scanning and
-  # secret_scanning_push_protection free on EVERY repository visibility
-  # (https://github.blog/changelog/2024-01-30-secret-scanning-is-now-free-for-all-public-and-private-repositories/).
   # The remaining secret-scanning extras (ai_detection, non_provider_patterns)
   # plus advanced_security and code_security still require GHAS / a paid
   # plan, so they stay false.
@@ -156,7 +156,7 @@ variable "github_security_capabilities" {
 }
 
 variable "security_baseline" {
-  description = "Desired security_and_analysis baseline the framework should enforce when the owner's github_security_capabilities allow it, keyed by visibility. Fully-required matrix. A feature set to true means 'enable this wherever capabilities permit'; false means 'leave this feature unmanaged (do not enable)'. Explicit per-repo security_and_analysis YAML still overrides this baseline."
+  description = "Desired security_and_analysis baseline the framework should enforce when the owner's github_security_capabilities allow it, keyed by visibility. Fully-required matrix. A feature set to true means 'enable this wherever capabilities permit'; false means 'leave this feature unmanaged (do not enable)'. Explicit per-repo security_and_analysis YAML still overrides this baseline; per-repo unmanaged_security_features overrides both and emits null so the provider omits the feature."
 
   type = object({
     public = object({

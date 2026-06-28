@@ -111,18 +111,18 @@ terraform test
 | N04 | `security_and_analysis` all-null → null | ✅ | `security.tftest.hcl::no_baseline_no_yaml_collapses_security_to_null` |
 | N05 | `security_and_analysis` baseline gated by capability (positive) | ✅ | `security.tftest.hcl::baseline_feature_enabled_when_capability_matches` |
 | N06 | `security_and_analysis` explicit YAML overrides baseline | ✅ | `normalization.tftest.hcl::explicit_security_and_analysis_overrides_baseline` |
-| N07 | `pages.cname = try(..., null)` (Finding 5 single-arg try regression) | ✅ | `normalization.tftest.hcl::pages_partial_fields_plans_clean` |
-| N08 | Pattern block `try()` fixes — partial fields | ✅ | `normalization.tftest.hcl::pattern_blocks_with_only_pattern_field_plans_clean` |
-| N09 | `merge_queue` partial fields | ✅ | `normalization.tftest.hcl::merge_queue_with_partial_fields_plans_clean` |
-| N10 | `pull_request` partial fields | ✅ | `normalization.tftest.hcl::pull_request_with_only_merge_methods_plans_clean` |
-| N11 | `license_template = null` default (Finding 22: MIT removal) | ✅ | `normalization.tftest.hcl::license_template_defaults_null_not_MIT` + default sweep |
-| N12 | Branch source ordering (Finding 21) — multi-branch | ✅ | `normalization.tftest.hcl::multi_branch_sources_all_from_default_not_serially` |
-| N13 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
-| N14 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
-| N15 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
+| N07 | `unmanaged_security_features` forces listed `security_and_analysis` features to null | ✅ | `security.tftest.hcl::unmanaged_secret_features_collapse_security_to_null` |
+| N08 | `pages.cname = try(..., null)` (Finding 5 single-arg try regression) | ✅ | `normalization.tftest.hcl::pages_partial_fields_plans_clean` |
+| N09 | Pattern block `try()` fixes — partial fields | ✅ | `normalization.tftest.hcl::pattern_blocks_with_only_pattern_field_plans_clean` |
+| N10 | `merge_queue` partial fields | ✅ | `normalization.tftest.hcl::merge_queue_with_partial_fields_plans_clean` |
+| N11 | `pull_request` partial fields | ✅ | `normalization.tftest.hcl::pull_request_with_only_merge_methods_plans_clean` |
+| N12 | `license_template = null` default (Finding 22: MIT removal) | ✅ | `normalization.tftest.hcl::license_template_defaults_null_not_MIT` + default sweep |
+| N13 | Branch source ordering (Finding 21) — multi-branch | ✅ | `normalization.tftest.hcl::multi_branch_sources_all_from_default_not_serially` |
+| N14 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
+| N15 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
+| N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
 
-**Normalization coverage: 15 / 15 ≈ 100%.**
-
+**Normalization coverage: 16 / 16 ≈ 100%.**
 ## `for_each` filter regressions
 
 | # | Filter | Status | Test |
