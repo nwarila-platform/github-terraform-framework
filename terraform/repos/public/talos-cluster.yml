@@ -1,0 +1,69 @@
+# nwarila-platform/talos-cluster — brought under Terraform management (P0.3).
+#
+# Onboards the existing GitOps cluster repo into the framework so its repo
+# settings + branch/tag rulesets are managed in-band instead of configured
+# out-of-band in the GitHub UI. The three rulesets below are the framework
+# defaults, which were verified 2026-07-12 to match the repo's current
+# manually-created "Branch Safety" / "Pull Request Gate" / "Release Tag
+# Protection" rulesets EXACTLY (rules + admin bypass + ~DEFAULT_BRANCH), so
+# adoption preserves signing + linear-history + squash-only + code-owner review.
+#
+# The `required_checks` list is the P0.3 addition: it injects a
+# required_status_checks rule into the Pull Request Gate. Only checks that run
+# on EVERY PR are listed (Security Audit + Org ADR Sync run unconditionally);
+# the path-filtered `Validate` workflow checks are intentionally NOT required
+# yet — requiring them would block doc-only PRs until validate.yaml gains an
+# always-reports gate job (Phase 2, tracked separately).
+#
+# Existing-repo adoption note: talos-cluster already exists, so before the
+# first apply the runner must `terraform import` github_repository.repo
+# ["talos-cluster"] (and, if adopting rather than recreating, the three
+# github_repository_ruleset.branch/tag entries). See the P0.3 runbook.
+talos-cluster:
+  description: "Production Talos Linux bare-metal Kubernetes cluster (3 control-plane + 3 workers). GitOps via Flux; Cilium kube-proxy-free CNI with Gateway API, Kyverno policy, Longhorn storage, SOPS/age secrets, and HashiCorp Vault with AWS KMS auto-unseal."
+  homepage_url: "https://nickwarila.com"
+  visibility: public
+
+  has_issues: true
+  has_projects: false
+  has_wiki: false
+  has_discussions: false
+
+  allow_forking: true
+  allow_merge_commit: false
+  allow_squash_merge: true
+  allow_rebase_merge: false
+  allow_auto_merge: true
+  allow_update_branch: true
+  squash_merge_commit_title: PR_TITLE
+  squash_merge_commit_message: PR_BODY
+  merge_commit_title: MERGE_MESSAGE
+  merge_commit_message: PR_TITLE
+  delete_branch_on_merge: true
+
+  vulnerability_alerts: true
+
+  topics:
+    - cilium
+    - flux
+    - gitops
+    - homelab
+    - infrastructure-as-code
+    - kubernetes
+    - platform-engineering
+    - talos
+    - vault
+
+  # Leave the already-correct security posture untouched (secret scanning +
+  # push protection + Dependabot are enabled live); do not let the baseline
+  # toggle them during adoption.
+  unmanaged_security_features:
+    - advanced_security
+    - secret_scanning
+    - secret_scanning_push_protection
+
+  # P0.3: enforce green == mergeable, using only checks that run on every PR.
+  required_checks:
+    - "Config Audit"
+    - "Gitleaks Secret Scan"
+    - "org-adr / verify"
