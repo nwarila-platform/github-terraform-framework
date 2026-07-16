@@ -63,6 +63,64 @@ variable "github_app_auth" {
 
 #endregion --- [ Authentication ] ------------------------------------------------------------ #
 
+#region ------ [ Organization Settings ] ----------------------------------------------------- #
+
+variable "org_settings" {
+  description = "Organization settings to manage. Null leaves organization settings unmanaged. Profile strings must match live values because the GitHub provider cannot clear non-empty strings."
+  type = object({
+    name                                     = string
+    description                              = optional(string, "")
+    company                                  = optional(string, "")
+    blog                                     = optional(string, "")
+    email                                    = optional(string, "")
+    location                                 = optional(string, "")
+    twitter_username                         = optional(string, "")
+    default_repository_permission            = optional(string, "read")
+    members_can_create_repositories          = optional(bool, false)
+    members_can_create_public_repositories   = optional(bool, false)
+    members_can_create_private_repositories  = optional(bool, false)
+    members_can_create_internal_repositories = optional(bool, false)
+    members_can_create_pages                 = optional(bool, false)
+    members_can_create_public_pages          = optional(bool, false)
+    members_can_create_private_pages         = optional(bool, false)
+    members_can_fork_private_repositories    = optional(bool, false)
+    has_organization_projects                = optional(bool, false)
+    has_repository_projects                  = optional(bool, false)
+    web_commit_signoff_required              = optional(bool, true)
+  })
+  default  = null
+  nullable = true # null = unmanaged
+
+  validation {
+    condition     = var.org_settings == null ? true : contains(["read", "write", "admin", "none"], var.org_settings.default_repository_permission)
+    error_message = "org_settings.default_repository_permission must be one of: read, write, admin, none."
+  }
+}
+
+variable "org_billing_email" {
+  description = "Billing email required by the GitHub API when organization settings are managed. Source this value from a GitHub Actions secret."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true # null = unmanaged
+}
+
+variable "org_security_defaults_for_new_repos" {
+  description = "Organization security feature defaults for new repositories. Every feature defaults off; true is an explicit feature or paid-feature opt-in."
+  type = object({
+    advanced_security               = optional(bool, false)
+    secret_scanning                 = optional(bool, false)
+    secret_scanning_push_protection = optional(bool, false)
+    dependabot_alerts               = optional(bool, false)
+    dependabot_security_updates     = optional(bool, false)
+    dependency_graph                = optional(bool, false)
+  })
+  default  = {}
+  nullable = false
+}
+
+#endregion --- [ Organization Settings ] ----------------------------------------------------- #
+
 #region ------ [ CODEOWNERS ] ---------------------------------------------------------------- #
 
 variable "repo_default_codeowners" {

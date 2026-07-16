@@ -25,6 +25,47 @@ resource "terraform_data" "framework_validation" {
   }
 }
 
+resource "github_organization_settings" "org" {
+  count = var.org_settings != null ? 1 : 0
+
+  billing_email = var.org_billing_email
+
+  name             = var.org_settings.name
+  description      = var.org_settings.description
+  company          = var.org_settings.company
+  blog             = var.org_settings.blog
+  email            = var.org_settings.email
+  location         = var.org_settings.location
+  twitter_username = var.org_settings.twitter_username
+
+  default_repository_permission            = var.org_settings.default_repository_permission
+  members_can_create_repositories          = var.org_settings.members_can_create_repositories
+  members_can_create_public_repositories   = var.org_settings.members_can_create_public_repositories
+  members_can_create_private_repositories  = var.org_settings.members_can_create_private_repositories
+  members_can_create_internal_repositories = var.org_settings.members_can_create_internal_repositories
+  members_can_create_pages                 = var.org_settings.members_can_create_pages
+  members_can_create_public_pages          = var.org_settings.members_can_create_public_pages
+  members_can_create_private_pages         = var.org_settings.members_can_create_private_pages
+  members_can_fork_private_repositories    = var.org_settings.members_can_fork_private_repositories
+  has_organization_projects                = var.org_settings.has_organization_projects
+  has_repository_projects                  = var.org_settings.has_repository_projects
+  web_commit_signoff_required              = var.org_settings.web_commit_signoff_required
+
+  advanced_security_enabled_for_new_repositories               = var.org_security_defaults_for_new_repos.advanced_security
+  secret_scanning_enabled_for_new_repositories                 = var.org_security_defaults_for_new_repos.secret_scanning
+  secret_scanning_push_protection_enabled_for_new_repositories = var.org_security_defaults_for_new_repos.secret_scanning_push_protection
+  dependabot_alerts_enabled_for_new_repositories               = var.org_security_defaults_for_new_repos.dependabot_alerts
+  dependabot_security_updates_enabled_for_new_repositories     = var.org_security_defaults_for_new_repos.dependabot_security_updates
+  dependency_graph_enabled_for_new_repositories                = var.org_security_defaults_for_new_repos.dependency_graph
+
+  lifecycle {
+    # v6.12.1 Delete PATCHes billing_email to a hardcoded email@example.com.
+    prevent_destroy = true
+  }
+
+  depends_on = [terraform_data.framework_validation]
+}
+
 resource "github_repository" "repo" {
   for_each = local.all_repositories
 

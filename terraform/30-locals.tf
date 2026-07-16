@@ -337,6 +337,43 @@ locals {
     ]
   ])
 
+  org_settings_owner_errors = (
+    var.org_settings != null && !var.github_is_organization
+    ? ["org settings require an organization owner (github_is_organization = true). Personal accounts have no org surface."]
+    : []
+  )
+
+  org_billing_email_required_errors = (
+    var.org_settings != null && try(trimspace(var.org_billing_email), "") == ""
+    ? ["Managing org settings requires a non-empty org_billing_email. Source it from a GitHub Actions secret; it is required by the GitHub API and must never be committed."]
+    : []
+  )
+
+  org_settings_name_errors = (
+    var.org_settings != null && try(trimspace(var.org_settings.name), "") == ""
+    ? ["org_settings.name must be a non-empty display name. An empty string would wipe the organization's display name via the whole-object PATCH."]
+    : []
+  )
+
+  dangling_org_billing_email_errors = (
+    var.org_settings == null && var.org_billing_email != null
+    ? ["org_billing_email is set while org settings are unmanaged. Set org_settings or remove the dangling billing email configuration."]
+    : []
+  )
+
+  dangling_org_security_defaults_errors = (
+    var.org_settings == null && anytrue([
+      var.org_security_defaults_for_new_repos.advanced_security,
+      var.org_security_defaults_for_new_repos.secret_scanning,
+      var.org_security_defaults_for_new_repos.secret_scanning_push_protection,
+      var.org_security_defaults_for_new_repos.dependabot_alerts,
+      var.org_security_defaults_for_new_repos.dependabot_security_updates,
+      var.org_security_defaults_for_new_repos.dependency_graph,
+    ])
+    ? ["org_security_defaults_for_new_repos enables features while org settings are unmanaged. Set org_settings so the configuration is not silently ignored."]
+    : []
+  )
+
   global_validation_errors = concat(
     local.duplicate_key_error,
     local.unknown_top_level_key_errors,
@@ -346,6 +383,11 @@ locals {
     local.security_capability_gap_errors,
     local.unmanaged_security_feature_errors,
     local.secrets_type_errors,
+    local.org_settings_owner_errors,
+    local.org_billing_email_required_errors,
+    local.org_settings_name_errors,
+    local.dangling_org_billing_email_errors,
+    local.dangling_org_security_defaults_errors,
   )
 }
 
