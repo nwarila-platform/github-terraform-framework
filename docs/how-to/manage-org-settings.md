@@ -23,12 +23,21 @@ github_is_organization = true
 
 org_settings = {
   name = "<live organization display name>"
+
+  security_defaults_for_new_repositories = {
+    advanced_security               = false
+    secret_scanning                 = false
+    secret_scanning_push_protection = false
+    dependabot_alerts               = false
+    dependabot_security_updates     = false
+    dependency_graph                = false
+  }
 }
 ```
 
 The restrictive defaults intentionally change member repository creation and Pages permissions to `false`, organization/repository projects to `false`, and web commit signoff to `true`. Owners and administrators are unaffected by member repository-creation restrictions. Explicitly copy any live permissive values that the organization needs to retain.
 
-Leave every field in `org_security_defaults_for_new_repos` false unless the organization deliberately opts into that feature and, where applicable, its cost.
+Leave every field in the nested `org_settings.security_defaults_for_new_repositories` block false unless the organization deliberately opts into that feature and, where applicable, its cost. The block may be omitted when all six defaults remain false.
 
 Create an Actions secret named `ORG_BILLING_EMAIL` in the runner repository. Export it to Terraform as `TF_VAR_org_billing_email` in the workflow environment:
 
@@ -38,6 +47,8 @@ env:
 ```
 
 Never place the billing address in committed Terraform, tfvars, YAML, logs, or test assertions.
+
+`org_billing_email` remains separate from the single `org_settings` object because sensitive values follow the framework's top-level injection pattern: the resource receives the secret directly, while normalized locals contain only non-sensitive settings and remain readable in plans.
 
 ## Import before the first plan
 

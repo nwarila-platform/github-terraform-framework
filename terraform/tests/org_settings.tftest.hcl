@@ -125,14 +125,14 @@ run "non_default_opt_in_plans_every_managed_attribute" {
       has_organization_projects                = true
       has_repository_projects                  = true
       web_commit_signoff_required              = true
-    }
-    org_security_defaults_for_new_repos = {
-      advanced_security               = true
-      secret_scanning                 = true
-      secret_scanning_push_protection = true
-      dependabot_alerts               = true
-      dependabot_security_updates     = true
-      dependency_graph                = true
+      security_defaults_for_new_repositories = {
+        advanced_security               = true
+        secret_scanning                 = true
+        secret_scanning_push_protection = true
+        dependabot_alerts               = true
+        dependabot_security_updates     = true
+        dependency_graph                = true
+      }
     }
   }
 
@@ -237,11 +237,13 @@ run "advanced_security_explicit_opt_in_plans_true" {
 
   variables {
     github_is_organization = true
-    org_settings           = { name = "Test Organization" }
-    org_billing_email      = "billing@example.invalid"
-    org_security_defaults_for_new_repos = {
-      advanced_security = true
+    org_settings = {
+      name = "Test Organization"
+      security_defaults_for_new_repositories = {
+        advanced_security = true
+      }
     }
+    org_billing_email = "billing@example.invalid"
   }
 
   assert {
@@ -289,19 +291,3 @@ run "omitted_description_plans_empty" {
 }
 
 #endregion --- [ T8 | Empty profile semantics ] --------------------------------------------- #
-
-#region ------ [ T9 | Dangling security defaults ] ------------------------------------------ #
-
-run "unmanaged_org_rejects_enabled_security_default" {
-  command = plan
-
-  variables {
-    org_security_defaults_for_new_repos = {
-      advanced_security = true
-    }
-  }
-
-  expect_failures = [terraform_data.framework_validation]
-}
-
-#endregion --- [ T9 | Dangling security defaults ] ------------------------------------------ #

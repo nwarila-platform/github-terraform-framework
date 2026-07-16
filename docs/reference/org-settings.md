@@ -8,7 +8,7 @@ The framework can opt in to managing the GitHub organization settings surface wi
 
 ### `org_settings`
 
-`org_settings` is an object. Its `name` field is required; every other field has an explicit safe default.
+`org_settings` is the single non-sensitive organization-settings object. Its `name` field is required; every other field has an explicit safe default. The framework normalizes all 25 non-sensitive provider attributes from this object before mapping them one-to-one into the resource.
 
 | Field | Type | Default | Contract |
 |---|---|---:|---|
@@ -31,16 +31,17 @@ The framework can opt in to managing the GitHub organization settings surface wi
 | `has_organization_projects` | bool | `false` | Projects-off default. |
 | `has_repository_projects` | bool | `false` | Projects-off default. |
 | `web_commit_signoff_required` | bool | `true` | Commit-signoff default. |
+| `security_defaults_for_new_repositories` | object | `{}` | Nested new-repository security defaults; every nested feature defaults to `false`. |
 
 These restrictive `members_can_*` defaults can change existing live `true` values on the first apply. Organization owners and administrators are not constrained by member repository-creation restrictions. A runner that needs permissive behavior must set those values explicitly.
 
 ### `org_billing_email`
 
-`org_billing_email` is a sensitive string with default `null`. It must be trimmed and non-empty whenever `org_settings` is managed. Supply it as `TF_VAR_org_billing_email` from a GitHub Actions secret such as `ORG_BILLING_EMAIL`; never commit it. Keeping this field outside `org_settings` leaves non-sensitive organization-setting plan diffs readable.
+`org_billing_email` is a sensitive string with default `null`. It must be trimmed and non-empty whenever `org_settings` is managed. Supply it as `TF_VAR_org_billing_email` from a GitHub Actions secret such as `ORG_BILLING_EMAIL`; never commit it. It is deliberately the top-level-sensitive exception to the single-object contract: credentials and other sensitive values are injected only at the resource attribute, never included in normalized locals. This keeps `local.organization_settings` non-sensitive and its plan diffs readable.
 
-### `org_security_defaults_for_new_repos`
+### `org_settings.security_defaults_for_new_repositories`
 
-This non-null object defaults to `{}` and every feature defaults to `false`. A `true` value is a deliberate feature or paid-feature opt-in.
+This nested object defaults to `{}` and every feature defaults to `false`. A `true` value is a deliberate feature or paid-feature opt-in.
 
 | Field | Default | Expense posture |
 |---|---:|---|
@@ -60,7 +61,8 @@ Plan is rejected when any of these conditions is true:
 3. V2b: managed settings have an empty or whitespace-only `name`.
 4. V3: `org_billing_email` is set while `org_settings` is unmanaged.
 5. V4: `default_repository_permission` is not `read`, `write`, `admin`, or `none`.
-6. V5: any security default is enabled while `org_settings` is unmanaged. This prevents an explicit paid opt-in from silently becoming a no-op.
+
+There is no dangling-security validation: security defaults are nested inside `org_settings`, so configuring them while organization settings are unmanaged is structurally impossible.
 
 ## Provider 6.12.1 behavior
 

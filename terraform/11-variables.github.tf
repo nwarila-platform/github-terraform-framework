@@ -87,6 +87,14 @@ variable "org_settings" {
     has_organization_projects                = optional(bool, false)
     has_repository_projects                  = optional(bool, false)
     web_commit_signoff_required              = optional(bool, true)
+    security_defaults_for_new_repositories = optional(object({
+      advanced_security               = optional(bool, false)
+      secret_scanning                 = optional(bool, false)
+      secret_scanning_push_protection = optional(bool, false)
+      dependabot_alerts               = optional(bool, false)
+      dependabot_security_updates     = optional(bool, false)
+      dependency_graph                = optional(bool, false)
+    }), {})
   })
   default  = null
   nullable = true # null = unmanaged
@@ -103,20 +111,6 @@ variable "org_billing_email" {
   sensitive   = true
   default     = null
   nullable    = true # null = unmanaged
-}
-
-variable "org_security_defaults_for_new_repos" {
-  description = "Organization security feature defaults for new repositories. Every feature defaults off; true is an explicit feature or paid-feature opt-in."
-  type = object({
-    advanced_security               = optional(bool, false)
-    secret_scanning                 = optional(bool, false)
-    secret_scanning_push_protection = optional(bool, false)
-    dependabot_alerts               = optional(bool, false)
-    dependabot_security_updates     = optional(bool, false)
-    dependency_graph                = optional(bool, false)
-  })
-  default  = {}
-  nullable = false
 }
 
 #endregion --- [ Organization Settings ] ----------------------------------------------------- #
