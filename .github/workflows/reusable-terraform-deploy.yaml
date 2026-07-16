@@ -471,29 +471,57 @@ jobs:
       - name: Terraform plan
         working-directory: framework/terraform
         run: |
-          terraform plan -out=tfplan
-          terraform show -no-color tfplan > plan-output.txt
+          set -euo pipefail
+          # Suppress the human-readable plan RENDER from the (public) Actions log
+          # — it can disclose private repo names + nonsensitive attribute values.
+          # Errors go to stderr and remain visible; the binary plan is in tfplan.
+          terraform plan -input=false -lock-timeout=10m -out=tfplan > /dev/null
+          # Plan JSON stays LOCAL to the ephemeral runner (never uploaded, never
+          # echoed to a public surface); the sanitized summary is derived from it.
+          # (sensitive TF_VARs already render as "(sensitive value)".)
+          terraform show -json tfplan > plan.json
 
-      - name: Publish plan to job summary
+      - name: Publish sanitized plan summary to job summary
         if: ${{ inputs.plan_only }}
         working-directory: framework/terraform
         run: |
           set -euo pipefail
-          {
-            echo '### Terraform plan (plan_only dry-run)';
-            echo '```';
-            # Cap to keep the summary within GitHub's size limit.
-            head -c 900000 plan-output.txt;
-            echo '```';
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Archive plan output
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: terraform-plan-${{ github.sha }}
-          path: framework/terraform/plan-output.txt
-          retention-days: 90
+          # Emit an ALLOWLISTED summary (per-action counts + address -> action)
+          # derived from the plan JSON. No attribute VALUES are printed, so the
+          # public job summary cannot leak config/secret values. Resource
+          # addresses (which include repo names) are shown so the diff is still
+          # reviewable; deeper review uses a real-state plan run out-of-band.
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from collections import Counter
+          with open("plan.json", encoding="utf-8") as fh:
+              plan = json.load(fh)
+          rows = []
+          tally = Counter()
+          for rc in plan.get("resource_changes", []):
+              actions = rc.get("change", {}).get("actions", [])
+              act = "-".join(actions)
+              if act in ("no-op", "read"):
+                  continue
+              tally[act] += 1
+              rows.append((rc.get("address", "?"), act))
+          print("### Terraform plan (plan_only dry-run) — sanitized")
+          print()
+          if not rows:
+              print("No changes. Infrastructure matches the configuration.")
+          else:
+              print("| count | action |")
+              print("|---|---|")
+              for act, n in sorted(tally.items(), key=lambda kv: -kv[1]):
+                  print(f"| {n} | `{act}` |")
+              print()
+              print("| resource | action |")
+              print("|---|---|")
+              for addr, act in sorted(rows):
+                  print(f"| `{addr}` | `{act}` |")
+              print()
+              print("_Values omitted by design (public repo). Run a real-state plan out-of-band for full detail._")
+          PY
 
       - name: Terraform apply
         if: ${{ inputs.apply && !inputs.plan_only }}
