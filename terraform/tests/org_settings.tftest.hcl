@@ -17,7 +17,7 @@ variables {
 
   # Org-setting tests do not exercise repository rulesets. Keep the shared
   # minimal fixture from inheriting the default code-owner-review ruleset,
-  # which requires an explicit per-repository CODEOWNERS source in org mode.
+  # while this test supplies neither per-repo codeowners nor a usable global default.
   repo_default_rules = []
 
   # Restated matrices keep repository security checks out of these org-setting tests.

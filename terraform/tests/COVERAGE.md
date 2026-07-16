@@ -121,6 +121,12 @@ terraform test
 | N14 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
 | N15 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
+| CO1 | Org mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::org_mode_uses_global_codeowners_default` |
+| CO2 | Per-repo `codeowners` overrides the global default | ✅ | `normalization.tftest.hcl::org_mode_per_repo_codeowners_overrides_global_default` |
+| CO3 | Personal mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::personal_mode_uses_global_codeowners_default` |
+| CO4 | Personal mode with no default synthesizes the bare personal owner | ✅ | `normalization.tftest.hcl::personal_mode_synthesizes_codeowners` |
+| CO5 | Org mode with no default retains the ruleset precondition guard | ✅ | `preconditions.tftest.hcl::rejects_org_mode_codeowners_required_but_missing` |
+| CO6 | Empty personal default synthesizes; whitespace org default triggers the guard | ✅ | `normalization.tftest.hcl::personal_mode_empty_codeowners_default_synthesizes` + `normalization.tftest.hcl::org_mode_whitespace_codeowners_default_is_rejected` |
 
 **Normalization coverage: 16 / 16 ≈ 100%.**
 ## `for_each` filter regressions

@@ -9,6 +9,9 @@
 
 locals {
 
+  # Empty or whitespace-only global CODEOWNERS content is treated as unset.
+  _default_codeowners = try(trimspace(var.repo_default_codeowners), "") != "" ? var.repo_default_codeowners : null
+
   repo_yaml_files = sort(concat(
     tolist(fileset(path.module, "${var.repo_yaml_path}/public/*.yml")),
     tolist(fileset(path.module, "${var.repo_yaml_path}/public/*.yaml")),
@@ -691,27 +694,24 @@ locals {
       # (the default) means no change — CI stays advisory, as before.
       required_checks = try(repository.required_checks, [])
 
-      # Effective CODEOWNERS resolution (Finding 1).
+      # Effective CODEOWNERS resolution.
       #
       # Precedence:
-      #   1. Explicit repo.codeowners in YAML — authoritative, used verbatim.
-      #   2. Personal-account mode (!github_is_organization) AND a repo
-      #      rule requires code owner review — synthesize
-      #      var.repo_default_codeowners, or fall back to '* @<owner>\n'.
-      #   3. Otherwise null — the framework will not provision CODEOWNERS.
-      #
-      # Org-mode repos with require_code_owner_review but no explicit
-      # codeowners are blocked by a precondition on the ruleset resource.
+      #   1. Explicit repo.codeowners in YAML — the operator override in both modes.
+      #   2. Non-empty global repo_default_codeowners — honored in both modes.
+      #   3. Personal-account mode — synthesize '* @<owner>\n'.
+      #   4. Org mode with neither source — null; the ruleset precondition guards
+      #      repositories that require code-owner review.
       codeowners = try(repository.codeowners, null)
 
       effective_codeowners = (
         try(repository.codeowners, null) != null
         ? repository.codeowners
-        : (
-          !var.github_is_organization
-          ? coalesce(var.repo_default_codeowners, "* @${var.github_owner}\n")
-          : null
-        )
+        : local._default_codeowners != null
+        ? local._default_codeowners
+        : !var.github_is_organization
+        ? "* @${var.github_owner}\n"
+        : null
       )
 
       #region ------ [ Actions Permissions ] ------------------------------------------------- #
