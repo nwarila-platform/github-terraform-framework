@@ -178,6 +178,54 @@ run "empty_repo_set_plans_clean" {
 
 #region ------ [ CODEOWNERS paths ] ----------------------------------------------------------- #
 
+# CO1: A global default is honored in organization mode when YAML has no override.
+run "org_mode_uses_global_codeowners_default" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-personal-synthesized-codeowners"
+    github_is_organization  = true
+    repo_default_codeowners = "* @NWarila\n"
+  }
+
+  assert {
+    condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @NWarila\n"
+    error_message = "organization mode must use the global CODEOWNERS default"
+  }
+}
+
+# CO2: An explicit per-repository value takes precedence over the global default.
+run "org_mode_per_repo_codeowners_overrides_global_default" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-org-explicit-codeowners"
+    github_is_organization  = true
+    repo_default_codeowners = "* @NWarila\n"
+  }
+
+  assert {
+    condition     = output.all_repositories["good-org-codeowners-repo"].effective_codeowners == output.all_repositories["good-org-codeowners-repo"].codeowners
+    error_message = "explicit per-repository CODEOWNERS must override the global default"
+  }
+}
+
+# CO3: Preserve personal-mode use of a substantive global default.
+run "personal_mode_uses_global_codeowners_default" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-personal-synthesized-codeowners"
+    github_is_organization  = false
+    repo_default_codeowners = "* @personal-reviewer\n"
+  }
+
+  assert {
+    condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @personal-reviewer\n"
+    error_message = "personal mode must use the global CODEOWNERS default before synthesis"
+  }
+}
+
 run "org_mode_explicit_codeowners_plans_clean" {
   command = plan
 
@@ -198,6 +246,7 @@ run "org_mode_explicit_codeowners_plans_clean" {
   }
 }
 
+# CO4: With no default, personal mode still synthesizes the personal owner.
 run "personal_mode_synthesizes_codeowners" {
   command = plan
 
@@ -216,6 +265,37 @@ run "personal_mode_synthesizes_codeowners" {
     condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @test-owner\n"
     error_message = "personal-mode fixture should synthesize '* @test-owner', got: ${output.all_repositories["good-personal-synthesized-repo"].effective_codeowners}"
   }
+}
+
+# CO6a: An empty personal-mode default is unset and falls through to synthesis.
+run "personal_mode_empty_codeowners_default_synthesizes" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-personal-synthesized-codeowners"
+    github_is_organization  = false
+    repo_default_codeowners = ""
+  }
+
+  assert {
+    condition     = output.all_repositories["good-personal-synthesized-repo"].effective_codeowners == "* @test-owner\n"
+    error_message = "an empty personal-mode default must fall through to CODEOWNERS synthesis"
+  }
+}
+
+# CO6b: A whitespace-only org-mode default is unset, so the ruleset guard fires.
+run "org_mode_whitespace_codeowners_default_is_rejected" {
+  command = plan
+
+  variables {
+    repo_yaml_path          = "tests/fixtures/bad-ruleset-codeowners-missing-org"
+    github_is_organization  = true
+    repo_default_codeowners = "  "
+  }
+
+  expect_failures = [
+    github_repository_ruleset.branch["bad-codeowners-org-repo-rules-0"],
+  ]
 }
 
 #endregion --- [ CODEOWNERS paths ] ----------------------------------------------------------- #

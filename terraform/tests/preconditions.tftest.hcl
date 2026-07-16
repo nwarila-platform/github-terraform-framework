@@ -70,6 +70,7 @@ run "rejects_invalid_ruleset_enforcement" {
   ]
 }
 
+# CO5: With no default, org mode retains the existing ruleset guard.
 run "rejects_org_mode_codeowners_required_but_missing" {
   command = plan
 

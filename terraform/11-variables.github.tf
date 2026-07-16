@@ -118,7 +118,7 @@ variable "org_billing_email" {
 #region ------ [ CODEOWNERS ] ---------------------------------------------------------------- #
 
 variable "repo_default_codeowners" {
-  description = "Default CODEOWNERS content used for personal-account repositories when a repo enables require_code_owner_review but does not set 'codeowners' in its YAML. Set to null to force explicit per-repo codeowners even on personal accounts."
+  description = "Global CODEOWNERS default honored in both organization and personal-account modes. A per-repository 'codeowners' value overrides it. Empty or whitespace-only values are treated as unset; in organization mode, code owners must name a user or team, not the bare organization."
   type        = string
   default     = null
 }

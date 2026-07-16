@@ -80,7 +80,7 @@ The resource explicitly assigns all 26 managed attributes: billing email, seven 
 
 Because create cannot transmit false values, the reusable workflow automatically imports the live organization before its first validation and plan when org mode, the overlaid org tfvars file, and the billing variable are all present. It skips adoption when the state already contains the resource. Import reads GitHub and records the live settings in the initialized backend without changing GitHub; a later validation failure can be corrected and retried safely. Under `plan_only`, the initialized backend is ephemeral and local. The first live plan must also be watched for API omissions or plan-gated fields that could cause a read-back permadiff.
 
-The runner rollout must be atomic: enable the workflow's `github_is_organization` input, wire its `org_billing_email` secret, add `terraform/org.auto.tfvars`, and add explicit `codeowners:` entries to every repository YAML whose rulesets require code-owner review. Org mode disables CODEOWNERS auto-synthesis.
+The runner rollout must be atomic: enable the workflow's `github_is_organization` input, wire its `org_billing_email` secret, add `terraform/org.auto.tfvars`, and configure a global `repo_default_codeowners` with a valid user or team, adding per-repo `codeowners:` overrides where needed. The global default is honored in both modes and per-repo values override it; org mode disables only the invalid automatic bare-org synthesis.
 
 ## `prevent_destroy` and count transitions
 

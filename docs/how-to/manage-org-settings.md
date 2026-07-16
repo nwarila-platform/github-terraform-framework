@@ -54,12 +54,12 @@ The reusable workflow exports `TF_VAR_org_billing_email` through `GITHUB_ENV` on
 
 ## Roll out atomically
 
-Flipping `github_is_organization` to `true` stops automatic CODEOWNERS synthesis. In one runner pull request:
+Flipping `github_is_organization` to `true` disables automatic bare-org CODEOWNERS synthesis because a bare organization is not a valid GitHub code owner. A configured global `repo_default_codeowners` containing a valid user or team is honored in both modes, and a per-repo `codeowners:` value overrides it. In one runner pull request:
 
 - pass `github_is_organization: true` to the reusable workflow;
 - wire the `org_billing_email` reusable-workflow secret;
 - add `terraform/org.auto.tfvars`; and
-- add an explicit `codeowners:` value to every repository YAML whose rulesets require code-owner review.
+- configure a valid user or team in the global `repo_default_codeowners`, with per-repo `codeowners:` overrides where needed.
 
 The reusable workflow automatically adopts existing organization settings after repository and ruleset adoption and before validation and planning. It imports only when org mode is enabled, `org.auto.tfvars` is present, the billing secret was exported, and the resource is absent from state. Provider 6.12.1 create logic uses `GetOk`, so this import ensures the first operation uses the update path and can pin false values. No manual state splice or runner-side `terraform import` is required.
 

@@ -487,17 +487,17 @@ resource "github_repository_ruleset" "branch" {
       error_message = "Ruleset '${each.key}' has invalid enforcement '${each.value.enforcement}'. Must be one of: active, evaluate, disabled."
     }
 
-    # When a rule turns on require_code_owner_review, the framework must
-    # either have an explicit per-repo codeowners string OR be able to
-    # synthesize one (personal-account mode). If neither is true, fail
-    # plan — activating the rule against a missing CODEOWNERS file would
-    # block every subsequent PR in the repo.
+    # When a rule turns on require_code_owner_review, the framework must have
+    # an explicit per-repo codeowners string, a usable global default, or be
+    # able to synthesize one in personal-account mode. If none is true, fail
+    # plan — activating the rule against a missing CODEOWNERS file would block
+    # every subsequent PR in the repo.
     precondition {
       condition = (
         try(each.value.rules.pull_request.require_code_owner_review, false) == false
         || local.all_repositories[each.value.repository].effective_codeowners != null
       )
-      error_message = "Ruleset '${each.key}' enables require_code_owner_review but repository '${each.value.repository}' has no effective CODEOWNERS source. Set repository.codeowners in its YAML (org mode), or set var.repo_default_codeowners, or run in personal-account mode (github_is_organization=false) to auto-synthesize."
+      error_message = "Ruleset '${each.key}' enables require_code_owner_review but repository '${each.value.repository}' has no effective CODEOWNERS source. Set repository.codeowners in its YAML, set a non-empty var.repo_default_codeowners, or run in personal-account mode (github_is_organization=false) to auto-synthesize."
     }
   }
 }
