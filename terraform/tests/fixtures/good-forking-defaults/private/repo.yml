@@ -1,0 +1,7 @@
+private-default-repo:
+  description: "Private repository with omitted allow_forking."
+  visibility: private
+
+internal-default-repo:
+  description: "Internal repository with omitted allow_forking."
+  visibility: internal

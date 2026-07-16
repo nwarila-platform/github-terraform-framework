@@ -1,0 +1,4 @@
+private-explicit-repo:
+  description: "Private repository with explicit allow_forking."
+  visibility: private
+  allow_forking: true
