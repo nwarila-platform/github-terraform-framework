@@ -207,10 +207,10 @@ resource "github_repository" "repo" {
   lifecycle {
     # `auto_init` and `license_template` are CREATE-time only; ignoring
     # them prevents spurious diff after the initial create. `allow_forking`
-    # is now explicitly managed in YAML (default null for private repos so
-    # the provider omits it from PATCH; default false for public/internal;
-    # YAML may override either). It is NOT ignored anymore — drift in
-    # YAML-managed values should surface as a real diff.
+    # defaults to true for public, false for internal and organization-owned
+    # private, and null for personal-account private repositories; YAML may
+    # override these defaults subject to validation. It is NOT ignored —
+    # drift in YAML-managed values should surface as a real diff.
     ignore_changes = [auto_init, license_template]
 
     precondition {

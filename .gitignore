@@ -46,6 +46,7 @@
 !/terraform/tests/
 !/terraform/tests/COVERAGE.md
 !/terraform/tests/capability_defaults.tftest.hcl
+!/terraform/tests/forking.tftest.hcl
 !/terraform/tests/normalization.tftest.hcl
 !/terraform/tests/preconditions.tftest.hcl
 !/terraform/tests/security.tftest.hcl
@@ -126,6 +127,12 @@
 !/terraform/tests/fixtures/good-fork/
 !/terraform/tests/fixtures/good-fork/private/
 !/terraform/tests/fixtures/good-fork/private/repo.yml
+!/terraform/tests/fixtures/good-forking-defaults/
+!/terraform/tests/fixtures/good-forking-defaults/private/
+!/terraform/tests/fixtures/good-forking-defaults/private/repo.yml
+!/terraform/tests/fixtures/good-forking-explicit/
+!/terraform/tests/fixtures/good-forking-explicit/private/
+!/terraform/tests/fixtures/good-forking-explicit/private/repo.yml
 !/terraform/tests/fixtures/good-internal-push-ruleset/
 !/terraform/tests/fixtures/good-internal-push-ruleset/private/
 !/terraform/tests/fixtures/good-internal-push-ruleset/private/repo.yml

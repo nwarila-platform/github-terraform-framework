@@ -1,0 +1,4 @@
+public-forking-disabled-repo:
+  description: "Public repository that attempts to disable forking."
+  visibility: public
+  allow_forking: false

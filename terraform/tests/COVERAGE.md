@@ -36,7 +36,7 @@ terraform test
 |---|---|---|---|
 | G01 | Duplicate repo keys across `public/` and `private/` | ✅ | `validation.tftest.hcl::rejects_duplicate_repo_keys` |
 | G02 | Unknown top-level YAML key | ✅ | `validation.tftest.hcl::rejects_unknown_top_level_key` |
-| G03 | `allow_forking` accepted and applied with visibility-aware default (private→null, else false; YAML may override) | ⚠️ | needs apply-time test against synthetic provider |
+| G03 | `allow_forking` defaults public→true, internal→false, organization-private→false, personal-private→null; YAML overrides; public explicit false is rejected | ✅ | `forking.tftest.hcl` F1–F7 |
 | G04 | Unknown nested: `actions.*` (top) | ✅ | `validation.tftest.hcl::rejects_unknown_nested_key` + multi-typo |
 | G05 | Unknown nested: `actions.allowed_actions_config.*` | ✅ | `validation.tftest.hcl::rejects_multiple_nested_typos_in_one_repo` |
 | G06 | Unknown nested: `pages.*` | ✅ | `validation.tftest.hcl::rejects_multiple_nested_typos_in_one_repo` |

@@ -35,13 +35,12 @@ locals {
   # outside this set indicates a typo or schema drift and is rejected by
   # terraform_data.framework_validation.
   #
-  # NOTE: `allow_forking` is opt-in. The GitHub API rejects PATCH calls
-  # that include the field on personal-account private repositories, so
-  # this framework treats the field as null-by-default. A repo YAML may
-  # explicitly opt in by setting `allow_forking: true|false` — the
-  # provider includes the field in PATCH only when non-null, so opt-in
-  # repos manage the setting normally and opt-out (default) repos never
-  # trip the API rejection.
+  # NOTE: `allow_forking` defaults by visibility and ownership: true for
+  # public, false for internal and organization-owned private, and null
+  # for personal-account private repositories so the provider omits the
+  # field. Explicit YAML values pass through, except public false is
+  # rejected because public forking is not restrictable on github.com.
+  # UNVERIFIED: does the GitHub API accept an explicit allow_forking on personal-account private repos? Needs a live 1-repo test.
   allowed_repo_keys = toset([
     "description", "homepage_url", "topics",
     "fork", "source_owner", "source_repo",
@@ -382,6 +381,12 @@ locals {
     : []
   )
 
+  public_forking_errors = [
+    for name, repo in local.repos_from_yaml :
+    "Repository '${name}' is public and explicitly sets allow_forking=false; public forking is not restrictable on github.com, so this would cause a 422 or permanent diff."
+    if coalesce(try(repo.visibility, null), "private") == "public" ? try(repo.allow_forking, null) == false : false
+  ]
+
   global_validation_errors = concat(
     local.duplicate_key_error,
     local.unknown_top_level_key_errors,
@@ -394,6 +399,7 @@ locals {
     local.secrets_type_errors,
     local.org_settings_owner_errors,
     local.org_settings_name_errors,
+    local.public_forking_errors,
   )
 }
 
@@ -492,26 +498,18 @@ locals {
         local.repo_setting_defaults.allow_auto_merge
       )
 
-      # Default policy (ownership-aware):
-      #   1. YAML explicitly sets true/false → honor it.
-      #   2. YAML omits the key + visibility == "private"
-      #         + github_is_organization == false → null.
-      #         (Personal-account private: the API rejects any PATCH
-      #         containing allow_forks regardless of value, so the
-      #         provider must omit the field entirely.)
-      #   3. Every other case → false (secure-by-default; forks disabled
-      #         unless YAML opts in via `allow_forking: true`).
-      #         Covers public, internal, AND org-owned private —
-      #         GitHub's API accepts the field for all three, so the
-      #         framework enforces the policy.
+      # Default policy (visibility- and ownership-aware): explicit YAML
+      # wins; otherwise public is true, internal and organization-owned
+      # private are false, and personal-account private is null so the
+      # provider omits the field. Public false is rejected upstream.
+      # UNVERIFIED: does the GitHub API accept an explicit allow_forking on personal-account private repos? Needs a live 1-repo test.
       allow_forking = (
         try(repository.allow_forking, null) != null
         ? repository.allow_forking
         : (
-          coalesce(try(repository.visibility, null), "private") == "private"
-          && !var.github_is_organization
-          ? null
-          : false
+          coalesce(try(repository.visibility, null), "private") == "public" ? true :
+          coalesce(try(repository.visibility, null), "private") == "internal" ? false :
+          var.github_is_organization ? false : null
         )
       )
 
