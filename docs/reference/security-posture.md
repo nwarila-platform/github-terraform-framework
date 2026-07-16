@@ -1,0 +1,11 @@
+# Security posture
+
+GitHub secret scanning and push protection are free for public repositories. On private and internal repositories they are paid GitHub Secret Protection features (currently billed per active committer). The defaults therefore keep the free public features on while pinning paid and private/internal features off. Dependabot vulnerability alerts and security updates are free, but independently default off as a client preference; explicitly setting `vulnerability_alerts: true` also defaults omitted `dependabot_security_updates` to true.
+
+For each security feature, the framework applies this precedence: per-repository `unmanaged_security_features` yields `null`; fleet-wide `security_pin_exclude` yields `null`; a non-null YAML `security_and_analysis` boolean is used verbatim; baseline and capability both true yields `true`; otherwise `security_default_status = "disabled"` yields `false`, while `"unmanaged"` yields `null`. After resolving the complete map, the whole block is omitted only when every value is null. Explicit false values remain managed and keep the block present.
+
+`github_security_capabilities` gates only the baseline path. It does not prevent explicit YAML `true` when capability is false. That bypass is intentional: the reviewed YAML edit and PR approval are the sanctioned feature and cost authorization, rather than an entitlement declaration. `unmanaged_security_features` is the per-repository escape hatch; `security_pin_exclude` is its fleet-wide counterpart and takes precedence over YAML; `security_default_status` controls only the final fallback.
+
+Provider issue #3501 can cause `code_security` not to read back and therefore produce a permanent diff. Mock-provider tests verify that excluding it omits its nested block while disabled sibling blocks remain, but cannot verify the real API. Treat this as an accepted external risk and run a real-account, two-plan smoke check during rollout. Some account/repository combinations may also reject a disable PATCH; use per-repository unmanaged features, fleet pin exclusion, or unmanaged fallback as appropriate.
+
+Changing these defaults intentionally creates fleet-wide first-plan diffs, including disabling out-of-band paid features and the independent Dependabot defaults. Every runner must perform and review a plan-only run before any apply.

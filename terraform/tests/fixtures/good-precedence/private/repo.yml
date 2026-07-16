@@ -1,0 +1,10 @@
+good-precedence-repo:
+  description: "Security precedence and Dependabot opt-in fixture."
+  visibility: private
+  vulnerability_alerts: true
+  security_and_analysis:
+    advanced_security: false
+    code_security: true
+    secret_scanning: true
+  unmanaged_security_features:
+    - secret_scanning

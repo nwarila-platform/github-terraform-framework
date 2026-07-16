@@ -45,6 +45,7 @@
 # Keep the test suite.
 !/terraform/tests/
 !/terraform/tests/COVERAGE.md
+!/terraform/tests/capability_defaults.tftest.hcl
 !/terraform/tests/normalization.tftest.hcl
 !/terraform/tests/preconditions.tftest.hcl
 !/terraform/tests/security.tftest.hcl
@@ -153,6 +154,9 @@
 !/terraform/tests/fixtures/good-personal-synthesized-codeowners/
 !/terraform/tests/fixtures/good-personal-synthesized-codeowners/private/
 !/terraform/tests/fixtures/good-personal-synthesized-codeowners/private/repo.yml
+!/terraform/tests/fixtures/good-precedence/
+!/terraform/tests/fixtures/good-precedence/private/
+!/terraform/tests/fixtures/good-precedence/private/repo.yml
 !/terraform/tests/fixtures/good-push-ruleset/
 !/terraform/tests/fixtures/good-push-ruleset/private/
 !/terraform/tests/fixtures/good-push-ruleset/private/repo.yml
@@ -195,6 +199,7 @@
 !/docs/reference/terraform.md
 !/docs/reference/release-gates.md
 !/docs/reference/invariants.md
+!/docs/reference/security-posture.md
 !/docs/how-to/
 !/docs/how-to/.gitkeep
 !/docs/how-to/develop-this-module.md

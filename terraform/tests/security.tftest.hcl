@@ -272,8 +272,9 @@ run "no_baseline_no_yaml_collapses_security_to_null" {
   command = plan
 
   variables {
-    repo_yaml_path         = "tests/fixtures/good-minimal"
-    security_baseline_mode = "compatibility"
+    security_default_status = "unmanaged"
+    repo_yaml_path          = "tests/fixtures/good-minimal"
+    security_baseline_mode  = "compatibility"
 
     github_security_capabilities = {
       public = {
@@ -344,8 +345,9 @@ run "unmanaged_secret_features_collapse_security_to_null" {
   command = plan
 
   variables {
-    repo_yaml_path         = "tests/fixtures/good-unmanaged-security-features"
-    security_baseline_mode = "strict"
+    security_default_status = "unmanaged"
+    repo_yaml_path          = "tests/fixtures/good-unmanaged-security-features"
+    security_baseline_mode  = "strict"
 
     github_security_capabilities = {
       public = {
@@ -498,3 +500,145 @@ run "baseline_feature_enabled_when_capability_matches" {
 }
 
 #endregion --- [ Baseline feature enabled when capability matches ] -------------------------- #
+
+run "disabled_fallback_manages_unspecified_features" {
+  command = plan
+  variables { repo_yaml_path = "tests/fixtures/good-minimal" }
+  assert {
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis != null && alltrue([for v in values(output.all_repositories["example-public-repo"].security_and_analysis) : v == false])
+    error_message = "disabled fallback must keep the block and manage every unspecified feature false"
+  }
+}
+
+run "precedence_collisions_and_explicit_capability_bypass" {
+  command = plan
+  variables {
+    repo_yaml_path       = "tests/fixtures/good-precedence"
+    security_pin_exclude = ["code_security"]
+  }
+  assert {
+    condition = (
+      output.all_repositories["good-precedence-repo"].security_and_analysis.secret_scanning == null &&
+      output.all_repositories["good-precedence-repo"].security_and_analysis.code_security == null &&
+      output.all_repositories["good-precedence-repo"].security_and_analysis.advanced_security == false
+    )
+    error_message = "precedence must be unmanaged > exclude > explicit, while explicit false is preserved"
+  }
+}
+
+run "explicit_true_bypasses_private_capability_false" {
+  command = plan
+  variables { repo_yaml_path = "tests/fixtures/good-precedence" }
+  assert {
+    condition     = output.all_repositories["good-precedence-repo"].security_and_analysis.code_security == true
+    error_message = "explicit private YAML true must bypass capability=false"
+  }
+  assert {
+    condition     = output.all_repositories["good-precedence-repo"].security_and_analysis.secret_scanning == null
+    error_message = "unmanaged must beat overlapping explicit true"
+  }
+}
+
+run "pin_exclude_omits_code_security" {
+  command = plan
+  variables {
+    repo_yaml_path       = "tests/fixtures/good-minimal"
+    security_pin_exclude = ["code_security"]
+  }
+  assert {
+    condition = (
+      output.all_repositories["example-public-repo"].security_and_analysis.code_security == null &&
+      alltrue([for f, v in output.all_repositories["example-public-repo"].security_and_analysis : v == false if f != "code_security"])
+    )
+    error_message = "code_security must be omitted while disabled sibling blocks remain"
+  }
+}
+
+run "all_features_excluded_collapses_whole_block" {
+  command = plan
+  variables {
+    repo_yaml_path       = "tests/fixtures/good-minimal"
+    security_pin_exclude = ["advanced_security", "code_security", "secret_scanning", "secret_scanning_push_protection", "secret_scanning_ai_detection", "secret_scanning_non_provider_patterns"]
+  }
+  assert {
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis == null
+    error_message = "all excluded features must collapse the whole block to null"
+  }
+}
+
+run "invalid_pin_exclude_blocks_plan" {
+  command = plan
+  variables {
+    repo_yaml_path       = "tests/fixtures/good-minimal"
+    security_pin_exclude = ["not_a_real_feature"]
+  }
+  expect_failures = [terraform_data.framework_validation]
+}
+
+run "dependabot_explicit_alert_opt_in_coalesces_updates" {
+  command = plan
+  variables { repo_yaml_path = "tests/fixtures/good-precedence" }
+  assert {
+    condition = (
+      output.all_repositories["good-precedence-repo"].vulnerability_alerts == true &&
+      output.all_repositories["good-precedence-repo"].dependabot_security_updates == true
+    )
+    error_message = "explicit vulnerability_alerts=true must coalesce omitted dependabot updates to true"
+  }
+}
+
+run "explicit_false_beats_enabled_baseline" {
+  command = plan
+  variables {
+    repo_yaml_path = "tests/fixtures/good-precedence"
+    github_security_capabilities = {
+      public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      private  = { advanced_security = true, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    }
+    security_baseline = {
+      public   = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      private  = { advanced_security = true, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    }
+  }
+  assert {
+    condition     = output.all_repositories["good-precedence-repo"].security_and_analysis.advanced_security == false
+    error_message = "explicit false must beat baseline true"
+  }
+}
+
+run "capability_gap_disabled_falls_back_false_and_preview_fires" {
+  command = plan
+  variables {
+    repo_yaml_path = "tests/fixtures/good-minimal"
+    security_baseline = {
+      public   = { advanced_security = true, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    }
+  }
+  expect_failures = [check.security_baseline_preview]
+  assert {
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis.advanced_security == false
+    error_message = "baseline true plus capability false must use disabled fallback false"
+  }
+}
+
+run "capability_gap_unmanaged_falls_back_null" {
+  command = plan
+  variables {
+    repo_yaml_path          = "tests/fixtures/good-minimal"
+    security_default_status = "unmanaged"
+    security_baseline = {
+      public   = { advanced_security = true, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      private  = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+      internal = { advanced_security = false, code_security = false, secret_scanning = false, secret_scanning_push_protection = false, secret_scanning_ai_detection = false, secret_scanning_non_provider_patterns = false }
+    }
+  }
+  expect_failures = [check.security_baseline_preview]
+  assert {
+    condition     = output.all_repositories["example-public-repo"].security_and_analysis == null
+    error_message = "baseline true plus capability false must collapse to null in unmanaged fallback"
+  }
+}
