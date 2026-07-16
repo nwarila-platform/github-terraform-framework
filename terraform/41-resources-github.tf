@@ -22,7 +22,58 @@ resource "terraform_data" "framework_validation" {
       condition     = length(local.global_validation_errors) == 0
       error_message = nonsensitive("Framework validation failed:\n\n${join("\n\n", local.global_validation_errors)}")
     }
+
+    precondition {
+      condition     = nonsensitive(var.org_settings == null ? true : try(trimspace(var.org_billing_email), "") != "")
+      error_message = "Managing org settings requires a non-empty org_billing_email. Source it from a GitHub Actions secret; it is required by the GitHub API and must never be committed."
+    }
+
+    precondition {
+      condition     = nonsensitive(var.org_settings != null ? true : var.org_billing_email == null)
+      error_message = "org_billing_email is set while org settings are unmanaged. Set org_settings or remove the dangling billing email configuration."
+    }
   }
+}
+
+resource "github_organization_settings" "org" {
+  count = local.organization_settings != null ? 1 : 0
+
+  billing_email = var.org_billing_email
+
+  name             = local.organization_settings.name
+  description      = local.organization_settings.description
+  company          = local.organization_settings.company
+  blog             = local.organization_settings.blog
+  email            = local.organization_settings.email
+  location         = local.organization_settings.location
+  twitter_username = local.organization_settings.twitter_username
+
+  default_repository_permission            = local.organization_settings.default_repository_permission
+  members_can_create_repositories          = local.organization_settings.members_can_create_repositories
+  members_can_create_public_repositories   = local.organization_settings.members_can_create_public_repositories
+  members_can_create_private_repositories  = local.organization_settings.members_can_create_private_repositories
+  members_can_create_internal_repositories = local.organization_settings.members_can_create_internal_repositories
+  members_can_create_pages                 = local.organization_settings.members_can_create_pages
+  members_can_create_public_pages          = local.organization_settings.members_can_create_public_pages
+  members_can_create_private_pages         = local.organization_settings.members_can_create_private_pages
+  members_can_fork_private_repositories    = local.organization_settings.members_can_fork_private_repositories
+  has_organization_projects                = local.organization_settings.has_organization_projects
+  has_repository_projects                  = local.organization_settings.has_repository_projects
+  web_commit_signoff_required              = local.organization_settings.web_commit_signoff_required
+
+  advanced_security_enabled_for_new_repositories               = local.organization_settings.advanced_security_enabled_for_new_repositories
+  secret_scanning_enabled_for_new_repositories                 = local.organization_settings.secret_scanning_enabled_for_new_repositories
+  secret_scanning_push_protection_enabled_for_new_repositories = local.organization_settings.secret_scanning_push_protection_enabled_for_new_repositories
+  dependabot_alerts_enabled_for_new_repositories               = local.organization_settings.dependabot_alerts_enabled_for_new_repositories
+  dependabot_security_updates_enabled_for_new_repositories     = local.organization_settings.dependabot_security_updates_enabled_for_new_repositories
+  dependency_graph_enabled_for_new_repositories                = local.organization_settings.dependency_graph_enabled_for_new_repositories
+
+  lifecycle {
+    # v6.12.1 Delete PATCHes billing_email to a hardcoded email@example.com.
+    prevent_destroy = true
+  }
+
+  depends_on = [terraform_data.framework_validation]
 }
 
 resource "github_repository" "repo" {
