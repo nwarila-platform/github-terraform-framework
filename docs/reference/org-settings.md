@@ -4,6 +4,10 @@
 
 The framework can opt in to managing the GitHub organization settings surface with `github_organization_settings.org`. The default is unmanaged: `org_settings = null` produces no resource. This resource is valid only when `github_is_organization = true`.
 
+For reusable-workflow runners, pass the boolean `github_is_organization` input and the optional `org_billing_email` secret to `.github/workflows/reusable-terraform-deploy.yaml`. Commit only the non-sensitive `org_settings` object in the runner as `terraform/org.auto.tfvars`; the workflow overlays it at `framework/terraform/org.auto.tfvars` for automatic loading.
+
+Existing callers remain semantically unchanged when they do not opt in. An omitted `github_is_organization` input exports explicit `false`, matching the Terraform variable default. An omitted `org_billing_email` secret writes nothing to `GITHUB_ENV`, leaving `TF_VAR_org_billing_email` absent so Terraform retains its `null` default. An absent runner `terraform/org.auto.tfvars` makes the conditional overlay a no-op.
+
 ## Inputs
 
 ### `org_settings`
@@ -74,7 +78,9 @@ The resource explicitly assigns all 26 managed attributes: billing email, seven 
 - Delete PATCHes `billing_email` to the hardcoded `email@example.com`. The resource uses `prevent_destroy = true`; decommission with state removal, never destroy.
 - The provider writes `BillingEmail` and the other fields verbatim to provider logs at `[DEBUG]`. Terraform sensitivity does not redact provider logs. Never use `TF_LOG=DEBUG` or `TF_LOG=TRACE` for organization-settings runs, and do not retain provider debug logs in CI.
 
-Because create cannot transmit false values, rollout must import the live organization before the first plan/apply. The first live plan must also be watched for API omissions or plan-gated fields that could cause a read-back permadiff.
+Because create cannot transmit false values, the reusable workflow automatically imports the live organization before its first validation and plan when org mode, the overlaid org tfvars file, and the billing variable are all present. It skips adoption when the state already contains the resource. Import reads GitHub and records the live settings in the initialized backend without changing GitHub; a later validation failure can be corrected and retried safely. Under `plan_only`, the initialized backend is ephemeral and local. The first live plan must also be watched for API omissions or plan-gated fields that could cause a read-back permadiff.
+
+The runner rollout must be atomic: enable the workflow's `github_is_organization` input, wire its `org_billing_email` secret, add `terraform/org.auto.tfvars`, and add explicit `codeowners:` entries to every repository YAML whose rulesets require code-owner review. Org mode disables CODEOWNERS auto-synthesis.
 
 ## `prevent_destroy` and count transitions
 

@@ -16,11 +16,9 @@ Record the organization display name, all six other profile strings, default rep
 
 ## Configure the runner
 
-Set `github_is_organization = true` and define `org_settings`. At minimum, provide the live display name:
+Commit the non-sensitive settings object as `terraform/org.auto.tfvars` in the runner repository. The reusable workflow copies that file to `framework/terraform/org.auto.tfvars`, where Terraform automatically loads it. At minimum, provide the live display name:
 
 ```hcl
-github_is_organization = true
-
 org_settings = {
   name = "<live organization display name>"
 
@@ -39,26 +37,35 @@ The restrictive defaults intentionally change member repository creation and Pag
 
 Leave every field in the nested `org_settings.security_defaults_for_new_repositories` block false unless the organization deliberately opts into that feature and, where applicable, its cost. The block may be omitted when all six defaults remain false.
 
-Create an Actions secret named `ORG_BILLING_EMAIL` in the runner repository. Export it to Terraform as `TF_VAR_org_billing_email` in the workflow environment:
+Create an Actions secret named `ORG_BILLING_EMAIL` in the runner repository. Pass org mode and the secret to the reusable workflow:
 
 ```yaml
-env:
-  TF_VAR_org_billing_email: ${{ secrets.ORG_BILLING_EMAIL }}
+jobs:
+  deploy:
+    with:
+      github_is_organization: true
+    secrets:
+      org_billing_email: ${{ secrets.ORG_BILLING_EMAIL }}
 ```
 
-Never place the billing address in committed Terraform, tfvars, YAML, logs, or test assertions.
+The reusable workflow exports `TF_VAR_org_billing_email` through `GITHUB_ENV` only when the optional secret is non-empty. Never place the billing address in committed Terraform, tfvars, YAML, logs, or test assertions, and do not map `TF_VAR_org_billing_email` at job level.
 
 `org_billing_email` remains separate from the single `org_settings` object because sensitive values follow the framework's top-level injection pattern: the resource receives the secret directly, while normalized locals contain only non-sensitive settings and remain readable in plans.
 
-## Import before the first plan
+## Roll out atomically
 
-Import is required. Provider 6.12.1 create logic uses `GetOk`, so configured false booleans are not sent on create. Import ensures the first operation uses the update path and can pin false values:
+Flipping `github_is_organization` to `true` stops automatic CODEOWNERS synthesis. In one runner pull request:
 
-```sh
-terraform import 'github_organization_settings.org[0]' <org-login>
-```
+- pass `github_is_organization: true` to the reusable workflow;
+- wire the `org_billing_email` reusable-workflow secret;
+- add `terraform/org.auto.tfvars`; and
+- add an explicit `codeowners:` value to every repository YAML whose rulesets require code-owner review.
 
-Do not apply the resource before this import.
+The reusable workflow automatically adopts existing organization settings after repository and ruleset adoption and before validation and planning. It imports only when org mode is enabled, `org.auto.tfvars` is present, the billing secret was exported, and the resource is absent from state. Provider 6.12.1 create logic uses `GetOk`, so this import ensures the first operation uses the update path and can pin false values. No manual state splice or runner-side `terraform import` is required.
+
+Import-before-validation follows the existing adoption pattern. Import reads GitHub and records the live organization settings in the backend; it does not update GitHub. A later validation failure therefore leaves a correct, idempotently adopted binding that the next run detects and skips. Under `plan_only`, adoption uses the workflow's ephemeral local backend and cannot modify canonical S3 state.
+
+Before merging the atomic rollout, retain the pre-flight safety check: pull the current state and verify a local no-op plan. Do not apply the resource before adoption has completed.
 
 ## Review the first plan
 

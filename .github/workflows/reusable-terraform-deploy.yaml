@@ -61,6 +61,13 @@ on:
           as TF_VAR_github_owner.
         required: true
         type: string
+      github_is_organization:
+        description: |
+          Whether github_owner is an organization. Forwarded to Terraform as
+          TF_VAR_github_is_organization.
+        required: false
+        type: boolean
+        default: false
       terraform_version:
         description: Exact Terraform version (e.g. "1.15.4").
         required: true
@@ -110,6 +117,9 @@ on:
       gh_token:
         description: GitHub token forwarded to Terraform as TF_VAR_github_token.
         required: true
+      org_billing_email:
+        description: Organization billing email forwarded only when provided.
+        required: false
 
 permissions: {}
 
@@ -123,6 +133,7 @@ jobs:
       id-token: write # required to assume the caller's cloud role via OIDC
     env:
       TF_VAR_github_owner: ${{ inputs.github_owner }}
+      TF_VAR_github_is_organization: ${{ inputs.github_is_organization }}
       # gh_token (input name avoids the reserved `github_token`) is forwarded
       # to Terraform as TF_VAR_github_token so the framework's variable
       # surface stays unchanged.
@@ -190,8 +201,19 @@ jobs:
           if [ -d runner/terraform/private ] && compgen -G "runner/terraform/private/*" > /dev/null; then
             cp -a runner/terraform/private/. framework/terraform/repos/private/
           fi
+          if [ -f runner/terraform/org.auto.tfvars ]; then
+            cp runner/terraform/org.auto.tfvars framework/terraform/org.auto.tfvars
+          fi
           echo "public:  $(find framework/terraform/repos/public  -maxdepth 1 -type f | wc -l) file(s)"
           echo "private: $(find framework/terraform/repos/private -maxdepth 1 -type f | wc -l) file(s)"
+
+      - name: Export org billing email when provided
+        env:
+          ORG_BILLING_EMAIL: ${{ secrets.org_billing_email }}
+        run: |
+          if [ -n "${ORG_BILLING_EMAIL}" ]; then
+            printf 'TF_VAR_org_billing_email=%s\n' "${ORG_BILLING_EMAIL}" >> "${GITHUB_ENV}"
+          fi
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
@@ -425,6 +447,22 @@ jobs:
                   check=True,
               )
           PY
+
+      - name: Adopt existing organization settings into state
+        if: ${{ inputs.github_is_organization }}
+        working-directory: framework/terraform
+        run: |
+          set -euo pipefail
+          [ -f org.auto.tfvars ] || { echo "no org.auto.tfvars; skipping org-settings adoption"; exit 0; }
+          # Third gate: without the billing var the plan will fail V2 anyway — don't import pointlessly.
+          [ -n "${TF_VAR_org_billing_email:-}" ] || { echo "org_billing_email not set; skipping org-settings adoption"; exit 0; }
+          # Import-before-validate is safe: import only records live settings in the initialized backend and never changes GitHub.
+          addr='github_organization_settings.org[0]'
+          if terraform state show "$addr" >/dev/null 2>&1; then
+            echo "state already has org settings; skipping import"; exit 0
+          fi
+          echo "importing existing organization settings for ${TF_VAR_github_owner}"
+          terraform import -input=false "$addr" "${TF_VAR_github_owner}"
 
       - name: Terraform validate
         working-directory: framework/terraform
