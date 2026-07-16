@@ -107,8 +107,8 @@ locals {
     license_template            = null
     archived                    = false
     archive_on_destroy          = true
-    vulnerability_alerts        = true
-    dependabot_security_updates = true
+    vulnerability_alerts        = false
+    dependabot_security_updates = false
   }
 
   # Names of every feature in the security capability / baseline matrix.
@@ -325,6 +325,11 @@ locals {
     ]
   ])
 
+  security_pin_exclude_errors = [
+    for feat in setsubtract(toset(var.security_pin_exclude), local.security_features) :
+    "security_pin_exclude: unknown feature '${feat}'. Allowed: ${jsonencode(tolist(local.security_features))}."
+  ]
+
   # Guard against someone writing secrets as a key-value map instead of a
   # list of names. YAML map form (`SECRET_NAME: "value"`) would commit
   # secret material to the repo in plaintext — the framework must reject
@@ -385,6 +390,7 @@ locals {
     local.auth_config_errors,
     local.security_capability_gap_errors,
     local.unmanaged_security_feature_errors,
+    local.security_pin_exclude_errors,
     local.secrets_type_errors,
     local.org_settings_owner_errors,
     local.org_settings_name_errors,
@@ -617,12 +623,10 @@ locals {
 
       # Capability-aware security_and_analysis normalization.
       #
-      # Precedence (highest wins):
-      #   1. Per-repo unmanaged_security_features forces listed features to null
-      #   2. Explicit per-repo YAML (repository.security_and_analysis.<feature>)
-      #   3. var.security_baseline[<visibility>][<feature>] — but ONLY enabled
-      #      when var.github_security_capabilities[<visibility>][<feature>] is true
-      #   4. null (leave the feature unmanaged)
+      # Precedence: unmanaged, fleet pin exclusion, explicit YAML, enabled
+      # baseline, then disabled(false) or unmanaged(null) fallback. Capabilities
+      # gate ONLY the baseline path; explicit YAML true intentionally bypasses
+      # capability=false as the sanctioned, reviewed opt-in.
       #
       # In 'strict' mode, a baseline-vs-capability mismatch is already
       # reported as a plan-blocking global validation error, so by the time
@@ -637,18 +641,17 @@ locals {
         : length([
           for feat in local.security_features :
           feat if(
-            !contains(try(repository.unmanaged_security_features, []), feat)
-            && (
-              try(repository.security_and_analysis[feat], null) != null
-              || (
-                var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
-                && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
-              )
-            )
-          )
+            contains(try(repository.unmanaged_security_features, []), feat) ? null :
+            contains(var.security_pin_exclude, feat) ? null :
+            try(repository.security_and_analysis[feat], null) != null ? repository.security_and_analysis[feat] :
+            var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat] && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat] ? true :
+            var.security_default_status == "disabled" ? false : null
+          ) != null
           ]) == 0 ? null : {
           for feat in local.security_features : feat => (
             contains(try(repository.unmanaged_security_features, []), feat)
+            ? null
+            : contains(var.security_pin_exclude, feat)
             ? null
             : (
               try(repository.security_and_analysis[feat], null) != null
@@ -657,7 +660,7 @@ locals {
                 var.security_baseline[coalesce(try(repository.visibility, null), "private")][feat]
                 && var.github_security_capabilities[coalesce(try(repository.visibility, null), "private")][feat]
                 ? true
-                : null
+                : (var.security_default_status == "disabled" ? false : null)
               )
             )
           )

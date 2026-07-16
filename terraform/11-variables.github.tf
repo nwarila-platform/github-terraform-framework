@@ -139,7 +139,7 @@ variable "security_baseline_mode" {
 }
 
 variable "github_security_capabilities" {
-  description = "Declaration of which GitHub security_and_analysis features the current owner/plan supports, keyed by repository visibility. Fully-required matrix (no optional fields): operators must declare every feature for every visibility to keep the capability contract explicit and auditable. Setting a feature to false means the owner/plan does not have entitlement to enable it on that visibility. If a specific repository must omit a feature despite the matrix, set unmanaged_security_features in that repo YAML."
+  description = "Baseline-path capability matrix for GitHub security_and_analysis features, keyed by repository visibility. This gates only baseline enablement; an explicit repository YAML true intentionally bypasses a false capability as the sanctioned, PR-reviewed opt-in. Private/internal secret scanning and push protection are paid Secret Protection features."
 
   type = object({
     public = object({
@@ -168,17 +168,10 @@ variable "github_security_capabilities" {
     })
   })
 
-  # GitHub Free baseline for personal accounts and free orgs. Availability
-  # can still vary by owner, plan, and provider API behavior, so a repository
-  # that cannot PATCH secret scanning can opt out per-repo with
-  # unmanaged_security_features.
-  #
-  # The remaining secret-scanning extras (ai_detection, non_provider_patterns)
-  # plus advanced_security and code_security still require GHAS / a paid
-  # plan, so they stay false.
-  #
-  # Operators on Team / Enterprise / GHAS plans should override this
-  # variable to declare what their plan actually supports.
+  # Capabilities gate ONLY the baseline path. Explicit YAML true bypasses a
+  # false capability intentionally; its reviewed PR is the cost authorization.
+  # Secret scanning and push protection are free for public repositories but
+  # paid Secret Protection features for private/internal repositories.
   default = {
     public = {
       advanced_security                     = false
@@ -191,16 +184,16 @@ variable "github_security_capabilities" {
     private = {
       advanced_security                     = false
       code_security                         = false
-      secret_scanning                       = true
-      secret_scanning_push_protection       = true
+      secret_scanning                       = false
+      secret_scanning_push_protection       = false
       secret_scanning_ai_detection          = false
       secret_scanning_non_provider_patterns = false
     }
     internal = {
       advanced_security                     = false
       code_security                         = false
-      secret_scanning                       = true
-      secret_scanning_push_protection       = true
+      secret_scanning                       = false
+      secret_scanning_push_protection       = false
       secret_scanning_ai_detection          = false
       secret_scanning_non_provider_patterns = false
     }
@@ -237,36 +230,51 @@ variable "security_baseline" {
     })
   })
 
-  # Opinionated enterprise baseline: enable every secret-scanning-family
-  # control on every visibility. Operators whose plan doesn't support a
-  # given feature will see it noop in compatibility mode or fail in
-  # strict mode (per security_baseline_mode).
+  # Free-only baseline: public secret scanning and push protection are on;
+  # paid features and all private/internal features are off.
   default = {
     public = {
       advanced_security                     = false
       code_security                         = false
       secret_scanning                       = true
       secret_scanning_push_protection       = true
-      secret_scanning_ai_detection          = true
-      secret_scanning_non_provider_patterns = true
+      secret_scanning_ai_detection          = false
+      secret_scanning_non_provider_patterns = false
     }
     private = {
-      advanced_security                     = true
-      code_security                         = true
-      secret_scanning                       = true
-      secret_scanning_push_protection       = true
-      secret_scanning_ai_detection          = true
-      secret_scanning_non_provider_patterns = true
+      advanced_security                     = false
+      code_security                         = false
+      secret_scanning                       = false
+      secret_scanning_push_protection       = false
+      secret_scanning_ai_detection          = false
+      secret_scanning_non_provider_patterns = false
     }
     internal = {
-      advanced_security                     = true
-      code_security                         = true
-      secret_scanning                       = true
-      secret_scanning_push_protection       = true
-      secret_scanning_ai_detection          = true
-      secret_scanning_non_provider_patterns = true
+      advanced_security                     = false
+      code_security                         = false
+      secret_scanning                       = false
+      secret_scanning_push_protection       = false
+      secret_scanning_ai_detection          = false
+      secret_scanning_non_provider_patterns = false
     }
   }
+}
+
+variable "security_default_status" {
+  description = "Fallback for security features not resolved by unmanaged/excluded, explicit YAML, or enabled baseline: 'disabled' manages them as false; 'unmanaged' emits null. Explicit YAML and unmanaged_security_features retain higher precedence."
+  type        = string
+  default     = "disabled"
+
+  validation {
+    condition     = contains(["disabled", "unmanaged"], var.security_default_status)
+    error_message = "security_default_status must be one of: disabled, unmanaged."
+  }
+}
+
+variable "security_pin_exclude" {
+  description = "Fleet-wide security feature names to omit (null), after per-repo unmanaged features and before explicit YAML. Unknown names are rejected by framework validation."
+  type        = list(string)
+  default     = []
 }
 
 #endregion --- [ Security Baseline ] --------------------------------------------------------- #
