@@ -495,7 +495,17 @@ jobs:
           # public job summary cannot leak config/secret values. Resource
           # addresses (which include repo names) are shown so the diff is still
           # reviewable; deeper review uses a real-state plan run out-of-band.
-          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          #
+          # `tee` sends the summary to BOTH the job summary and stdout. The job
+          # summary is human-readable but is not exposed by any REST endpoint, so
+          # a summary written only there cannot be asserted programmatically --
+          # meaning a reviewer's "this plan changes only what I intended" is an
+          # eyeball claim rather than a check. The job log IS retrievable, so
+          # duplicating there makes the plan machine-assertable by a gate.
+          #
+          # This adds no disclosure: job logs and job summaries have identical
+          # visibility, and the content is the same allowlisted, value-free text.
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
           from collections import Counter
           with open("plan.json", encoding="utf-8") as fh:
