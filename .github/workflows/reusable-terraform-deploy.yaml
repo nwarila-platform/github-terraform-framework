@@ -143,6 +143,17 @@ jobs:
     permissions:
       contents: read
       id-token: write # required to assume the caller's cloud role via OIDC
+      # Required by the drift_issue step. Granted unconditionally because Actions
+      # has no conditional permissions and an explicit block here OVERRIDES what
+      # the caller grants -- a caller setting `issues: write` does NOT reach this
+      # job without this line, which is exactly how the first drift run failed.
+      #
+      # Splitting drift reporting into its own job with narrower permissions was
+      # the alternative; it would require passing plan.json between jobs as an
+      # artifact, which #85 deliberately stopped doing because the plan can
+      # disclose private repo names. Scoped to the caller's own repo, and small
+      # next to the org-admin PAT and cloud role this job already holds.
+      issues: write # drift_issue opens/edits/closes an issue in the caller repo
     env:
       TF_VAR_github_owner: ${{ inputs.github_owner }}
       TF_VAR_github_is_organization: ${{ inputs.github_is_organization }}
@@ -620,9 +631,13 @@ jobs:
             gh issue edit "$EXISTING" --repo "$REPO" --body-file drift.md
             echo "drift still present; updated #$EXISTING"
           else
+            # --force makes this idempotent. Errors are NOT suppressed: the
+            # first run of this step failed because a permission denial here was
+            # sent to /dev/null, so the only symptom was `gh issue create`
+            # reporting a missing label -- which points at the wrong problem.
             gh label create terraform-drift --repo "$REPO" \
               --description "Live configuration diverged from Terraform" \
-              --color B60205 2>/dev/null || true
+              --color B60205 --force
             gh issue create --repo "$REPO" --title "$TITLE" \
               --label terraform-drift --body-file drift.md
             echo "drift detected; issue opened"
