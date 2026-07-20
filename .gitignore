@@ -209,6 +209,7 @@
 !/docs/explanation/architecture.md
 !/docs/explanation/testing-strategy.md
 !/docs/explanation/threat-model.md
+!/docs/explanation/tech-debt.md
 !/docs/reference/
 !/docs/reference/.gitkeep
 !/docs/reference/terraform.md
