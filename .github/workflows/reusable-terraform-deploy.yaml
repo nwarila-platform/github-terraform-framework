@@ -481,8 +481,12 @@ jobs:
           # (sensitive TF_VARs already render as "(sensitive value)".)
           terraform show -json tfplan > plan.json
 
+      # Publishes on EVERY run, not just plan_only. The plan render is suppressed
+      # from the (public) Actions log, so without this a workflow_dispatch plan
+      # (apply=false) — the pre-apply review path — produced NO reviewable output
+      # at all. The summary is value-free (counts + address -> action), so it is
+      # safe to publish on real-state and apply runs too.
       - name: Publish sanitized plan summary to job summary
-        if: ${{ inputs.plan_only }}
         working-directory: framework/terraform
         run: |
           set -euo pipefail
@@ -505,7 +509,7 @@ jobs:
                   continue
               tally[act] += 1
               rows.append((rc.get("address", "?"), act))
-          print("### Terraform plan (plan_only dry-run) — sanitized")
+          print("### Terraform plan — sanitized")
           print()
           if not rows:
               print("No changes. Infrastructure matches the configuration.")
