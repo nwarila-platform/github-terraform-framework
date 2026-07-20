@@ -53,11 +53,25 @@ class FakeGitHub:
             return self.allow_404[best]
         return self._match(path, self.routes), ""
 
-    def paginate(self, path):
+    def paginate(self, path, key=None):
         value = self._match(path, self.routes)
         if isinstance(value, Exception):
             raise value
-        yield from value
+        # Mirror the real client: envelope endpoints MUST be stubbed with their
+        # envelope. An earlier version of this fake returned bare lists for
+        # /check-runs and /actions/runs, which are envelope objects in the real
+        # API -- so every test passed while production found nothing at all.
+        if key is not None:
+            if not isinstance(value, dict) or key not in value:
+                raise AssertionError(
+                    f"route {path!r} must be stubbed as an envelope containing {key!r}, "
+                    f"got {type(value).__name__}"
+                )
+            yield from value[key]
+        else:
+            if not isinstance(value, list):
+                raise AssertionError(f"route {path!r} must be stubbed as a list")
+            yield from value
 
     def login(self):
         return self.routes.get("/user", {}).get("login", "NWarila")
@@ -233,29 +247,28 @@ class ReportedContextTests(unittest.TestCase):
         # result that does not exist.
         gh = FakeGitHub(
             {
-                "/repos/org/r/commits/abc/check-runs": [],
+                "/repos/org/r/commits/abc/check-runs": {"check_runs": []},
                 "/repos/org/r/commits/abc/status": {"state": "pending", "total_count": 0,
                                                     "statuses": []},
             }
         )
-        self.assertEqual(fw.reported_contexts(gh, "org/r", "abc"), set())
+        self.assertEqual(fw.reported_contexts(gh, "org/r", "abc"), (set(), set()))
 
     def test_check_runs_and_statuses_are_unioned(self):
         gh = FakeGitHub(
             {
-                "/repos/org/r/commits/abc/check-runs": [
-                    {"name": "Lint", "app": {"id": 15368}}
-                ],
+                "/repos/org/r/commits/abc/check-runs": {"check_runs": [
+                    {"name": "Lint", "status": "completed", "app": {"id": 15368}}
+                ]},
                 "/repos/org/r/commits/abc/status": {
                     "state": "success",
                     "statuses": [{"context": "legacy-ci", "creator": {"id": 99}}],
                 },
             }
         )
-        self.assertEqual(
-            fw.reported_contexts(gh, "org/r", "abc"),
-            {("Lint", 15368), ("legacy-ci", 99)},
-        )
+        reported, pending = fw.reported_contexts(gh, "org/r", "abc")
+        self.assertEqual(reported, {("Lint", 15368), ("legacy-ci", 99)})
+        self.assertEqual(pending, set())
 
 
 class SatisfactionTests(unittest.TestCase):
@@ -303,8 +316,8 @@ class D2Tests(unittest.TestCase):
                     },
                 }
             ],
-            "/repos/org/talos/commits/dead/check-runs": [{"name": "Lint", "app": {"id": 1}}],
-            "/repos/org/talos/commits/merge1/check-runs": [],
+            "/repos/org/talos/commits/dead/check-runs": {"check_runs": [{"name": "Lint", "status": "completed", "app": {"id": 1}}]},
+            "/repos/org/talos/commits/merge1/check-runs": {"check_runs": []},
             "/repos/org/talos/commits/dead/status": {"state": "pending", "statuses": statuses or []},
             "/repos/org/talos/commits/merge1/status": {"state": "pending", "statuses": []},
             "/repos/org/talos/commits/dead": {"commit": {"committer": {"date": old}}},
@@ -357,9 +370,9 @@ class D2Tests(unittest.TestCase):
         # commit. Inspecting only the head SHA would call a healthy PR deadlocked.
         gh = self._incident_gh(
             extra={
-                "/repos/org/talos/commits/merge1/check-runs": [
-                    {"name": "org-adr / verify", "app": {"id": 1}}
-                ]
+                "/repos/org/talos/commits/merge1/check-runs": {"check_runs": [
+                    {"name": "org-adr / verify", "status": "completed", "app": {"id": 1}}
+                ]}
             }
         )
         scan = fw.Scan()
@@ -428,7 +441,7 @@ class D1Tests(unittest.TestCase):
         }
 
     def test_pull_request_startup_failure_pages(self):
-        gh = FakeGitHub({"/repos/org/r/actions/runs": [self._run("pull_request")]})
+        gh = FakeGitHub({"/repos/org/r/actions/runs": {"workflow_runs": [self._run("pull_request")]}})
         scan = fw.Scan()
         fw.scan_d1(gh, {"full_name": "org/r"}, fw.utcnow(), scan)
         self.assertEqual(scan.findings[0].severity, "page")
@@ -436,13 +449,13 @@ class D1Tests(unittest.TestCase):
     def test_scheduled_startup_failure_is_only_a_notice(self):
         # talos-cluster alone carries ~695 lifetime startup_failures, nearly all
         # from scheduled runs. Paging on those makes the watchdog wallpaper.
-        gh = FakeGitHub({"/repos/org/r/actions/runs": [self._run("schedule")]})
+        gh = FakeGitHub({"/repos/org/r/actions/runs": {"workflow_runs": [self._run("schedule")]}})
         scan = fw.Scan()
         fw.scan_d1(gh, {"full_name": "org/r"}, fw.utcnow(), scan)
         self.assertEqual(scan.findings[0].severity, "notice")
 
     def test_threshold_is_one(self):
-        gh = FakeGitHub({"/repos/org/r/actions/runs": [self._run("pull_request")]})
+        gh = FakeGitHub({"/repos/org/r/actions/runs": {"workflow_runs": [self._run("pull_request")]}})
         scan = fw.Scan()
         fw.scan_d1(gh, {"full_name": "org/r"}, fw.utcnow(), scan)
         self.assertEqual(len(scan.findings), 1)
@@ -493,3 +506,225 @@ class ConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ResponseShapeTests(unittest.TestCase):
+    """Guard the API response shapes directly.
+
+    The original implementation treated `/check-runs` and `/actions/runs` as bare
+    arrays. They are envelope objects. Every test passed, because the fake also
+    returned bare arrays -- the fixture encoded the same wrong assumption as the
+    code, so the suite confirmed the bug instead of catching it. D1 consequently
+    found nothing at all and D2 saw zero check runs.
+
+    These tests assert the contract at the client boundary, where a fixture
+    cannot paper over it.
+    """
+
+    class _Client(fw.GitHub):
+        def __init__(self, body):
+            super().__init__("token")
+            self._body = body
+
+        def _request(self, url):
+            return 200, self._body, {}
+
+    def test_envelope_endpoint_unwraps_the_named_collection(self):
+        client = self._Client({"total_count": 1, "check_runs": [{"name": "Lint"}]})
+        self.assertEqual(list(client.paginate("/x", "check_runs")), [{"name": "Lint"}])
+
+    def test_envelope_endpoint_stubbed_as_a_bare_list_fails_closed(self):
+        # This is exactly the original bug. It must be loud, not silently empty.
+        client = self._Client([{"name": "Lint"}])
+        with self.assertRaises(fw.ScanIntegrityError):
+            list(client.paginate("/x", "check_runs"))
+
+    def test_missing_collection_key_fails_closed(self):
+        client = self._Client({"total_count": 0})
+        with self.assertRaises(fw.ScanIntegrityError):
+            list(client.paginate("/x", "check_runs"))
+
+    def test_array_endpoint_returning_an_object_fails_closed(self):
+        client = self._Client({"message": "Not Found"})
+        with self.assertRaises(fw.ScanIntegrityError):
+            list(client.paginate("/x"))
+
+    def test_d1_query_encodes_the_created_operator(self):
+        seen = []
+
+        class Recorder(fw.GitHub):
+            def __init__(self):
+                super().__init__("token")
+
+            def _request(self, url):
+                seen.append(url)
+                return 200, {"workflow_runs": []}, {}
+
+        fw.scan_d1(Recorder(), {"full_name": "org/r"}, fw.utcnow(), fw.Scan())
+        self.assertTrue(seen, "no request was made")
+        # A raw `>` in the query string is a reserved character; a dropped date
+        # filter would make D1 re-report the entire run history every cycle.
+        self.assertIn("created=%3E", seen[0])
+        self.assertIn("status=startup_failure", seen[0])
+
+    def test_check_runs_request_keeps_the_latest_filter(self):
+        seen = []
+
+        class Recorder(fw.GitHub):
+            def __init__(self):
+                super().__init__("token")
+
+            def _request(self, url):
+                seen.append(url)
+                if "check-runs" in url:
+                    return 200, {"check_runs": []}, {}
+                return 200, {"statuses": []}, {}
+
+        fw.reported_contexts(Recorder(), "org/r", "abc")
+        self.assertIn("filter=latest", seen[0])
+        self.assertIn("per_page=100", seen[0])
+
+
+class NonTerminalCheckTests(unittest.TestCase):
+    def test_required_check_stuck_queued_is_reported(self):
+        # Presence is not satisfaction: a required check parked in `queued`
+        # blocks the PR exactly as thoroughly as one that never appeared, while
+        # passing a naive membership test.
+        old = (fw.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        gh = FakeGitHub(
+            {
+                "/repos/org/r/pulls": [
+                    {
+                        "number": 1,
+                        "base": {"ref": "main"},
+                        "head": {"sha": "abc", "repo": {"full_name": "org/r"}},
+                        "created_at": old,
+                        "draft": False,
+                        "mergeable": True,
+                        "html_url": "https://example.invalid/pr/1",
+                    }
+                ],
+                "/repos/org/r/rules/branches/main": [
+                    {
+                        "type": "required_status_checks",
+                        "parameters": {"required_status_checks": [{"context": "Lint"}]},
+                    }
+                ],
+                "/repos/org/r/commits/abc/check-runs": {
+                    "check_runs": [{"name": "Lint", "status": "queued", "app": {"id": 1}}]
+                },
+                "/repos/org/r/commits/abc/status": {"statuses": []},
+                "/repos/org/r/commits/abc/check-suites": {"check_suites": []},
+                "/repos/org/r/commits/abc": {"commit": {"committer": {"date": old}}},
+            },
+            allow_404={"/repos/org/r/branches/main/protection": (None, "Branch not protected")},
+        )
+        scan = fw.Scan()
+        fw.scan_d2(gh, {"full_name": "org/r"}, {"fresh_head_grace_minutes": 30}, scan)
+        self.assertEqual(len(scan.findings), 1)
+        self.assertEqual(scan.findings[0].kind, "D2b")
+        self.assertIn("never finished", scan.findings[0].summary)
+
+
+class GraceAbuseTests(unittest.TestCase):
+    def test_future_dated_head_commit_does_not_defer_forever(self):
+        # Committer dates are author-controlled. A future timestamp yields a
+        # negative age, which would sit inside the grace window until wall time
+        # caught up -- deferring a real deadlock indefinitely.
+        future = (fw.utcnow() + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        old = (fw.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        gh = FakeGitHub(
+            {
+                "/repos/org/r/pulls": [
+                    {
+                        "number": 7,
+                        "base": {"ref": "main"},
+                        "head": {"sha": "abc", "repo": {"full_name": "org/r"}},
+                        "created_at": old,
+                        "draft": False,
+                        "mergeable": True,
+                        "html_url": "https://example.invalid/pr/7",
+                    }
+                ],
+                "/repos/org/r/rules/branches/main": [
+                    {
+                        "type": "required_status_checks",
+                        "parameters": {"required_status_checks": [{"context": "Lint"}]},
+                    }
+                ],
+                "/repos/org/r/commits/abc/check-runs": {"check_runs": []},
+                "/repos/org/r/commits/abc/status": {"statuses": []},
+                "/repos/org/r/commits/abc/check-suites": {"check_suites": []},
+                "/repos/org/r/commits/abc": {"commit": {"committer": {"date": future}}},
+            },
+            allow_404={"/repos/org/r/branches/main/protection": (None, "Branch not protected")},
+        )
+        scan = fw.Scan()
+        fw.scan_d2(gh, {"full_name": "org/r"}, {"fresh_head_grace_minutes": 30}, scan)
+        self.assertEqual(scan.deferred, 0)
+        self.assertEqual(len(scan.findings), 1)
+
+
+class PerPullRequestIsolationTests(unittest.TestCase):
+    def test_one_unreadable_pr_does_not_abort_the_rest_of_the_repo(self):
+        # A fork whose head repository was deleted leaves an open PR whose head
+        # commit the base repo can no longer serve. That is ordinary PR
+        # lifecycle, not credential loss, and must not blind the other PRs.
+        old = (fw.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        routes = {
+            "/repos/org/r/pulls": [
+                {
+                    "number": 1,
+                    "base": {"ref": "main"},
+                    "head": {"sha": "gone", "repo": None},
+                    "created_at": old,
+                    "draft": False,
+                    "mergeable": True,
+                    "html_url": "https://example.invalid/pr/1",
+                },
+                {
+                    "number": 2,
+                    "base": {"ref": "main"},
+                    "head": {"sha": "abc", "repo": {"full_name": "org/r"}},
+                    "created_at": old,
+                    "draft": False,
+                    "mergeable": True,
+                    "html_url": "https://example.invalid/pr/2",
+                },
+            ],
+            "/repos/org/r/rules/branches/main": [
+                {
+                    "type": "required_status_checks",
+                    "parameters": {"required_status_checks": [{"context": "Lint"}]},
+                }
+            ],
+            "/repos/org/r/commits/gone/check-runs": fw.ScanIntegrityError("HTTP 404"),
+            "/repos/org/r/commits/abc/check-runs": {"check_runs": []},
+            "/repos/org/r/commits/abc/status": {"statuses": []},
+            "/repos/org/r/commits/abc/check-suites": {"check_suites": []},
+            "/repos/org/r/commits/abc": {"commit": {"committer": {"date": old}}},
+        }
+        gh = FakeGitHub(
+            routes,
+            allow_404={"/repos/org/r/branches/main/protection": (None, "Branch not protected")},
+        )
+        scan = fw.Scan()
+        fw.scan_d2(gh, {"full_name": "org/r"}, {"fresh_head_grace_minutes": 30}, scan)
+        # PR 2 still scanned and reported...
+        self.assertEqual(len(scan.findings), 1)
+        self.assertIn("#2", scan.findings[0].summary)
+        # ...and PR 1's failure is recorded, so the run still exits 2.
+        self.assertEqual(len(scan.unscanned), 1)
+        self.assertIn("#1", scan.unscanned[0])
+
+
+class RenderIntegrityTests(unittest.TestCase):
+    def test_no_findings_plus_coverage_failure_never_reads_as_all_clear(self):
+        # Anything that scrapes the last line -- a human skimming, a notification
+        # excerpt -- must not come away with "green" from a scan that proved
+        # nothing.
+        scan = fw.Scan(repos_seen=3)
+        scan.fail("org/x D2", "HTTP 403")
+        out = fw.render(scan, {"organization": "org"})
+        self.assertNotIn("No deadlocked pull requests and no startup failures.", out)
+        self.assertIn("NOT an all-clear", out)

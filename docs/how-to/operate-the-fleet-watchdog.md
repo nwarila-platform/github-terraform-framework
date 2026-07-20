@@ -28,8 +28,16 @@ needing to know which happened.
 hours that died before a job started. Threshold is one. Cheaper and earlier than
 D2, but it enumerates a single known cause.
 
-The layering is deliberate: D1 may rot as GitHub adds new pre-run failure modes,
-and D2 cannot, because absence is absence regardless of cause. Keep both.
+**D2b — a required check that reports but never finishes.** A context parked in
+`queued` or `in_progress` blocks a merge exactly as thoroughly as one that never
+appeared, while passing a naive presence test. Reported separately.
+
+The layering is deliberate. D1 enumerates one specific cause and will rot as
+GitHub adds new pre-run failure modes; D2 keys on absence, so it stays correct
+across causes it has never heard of. That makes D2 the more durable of the two —
+but not infallible: it has its own blind spots, listed under Known gaps below,
+and it depends on assumptions about GitHub's API shapes and evaluation semantics
+that can change. Keep both, and read the gaps.
 
 ## Severity
 
@@ -38,6 +46,8 @@ and D2 cannot, because absence is absence regardless of cause. Keep both.
 | `page` | a PR is deadlocked right now | required context absent on a ready, non-draft PR |
 | `warn` | real but not currently blocking a merge | same finding on a draft, or on a PR that also has conflicts |
 | `notice` | pipeline rot, no PR impact | `startup_failure` on a scheduled or push-triggered run |
+
+D2b findings use the same severity scale as D2.
 
 `notice` exists because `talos-cluster` alone carries roughly 695 lifetime
 `startup_failure` runs, nearly all from scheduled workflows. Paging on those
@@ -121,18 +131,27 @@ produces exactly one "up" notification.
 
 The limitation is granularity — the external channel is per-check, not
 per-finding, so a *second* distinct finding appearing while a first is unresolved
-does not generate its own notification. The job summary always lists every
-current finding, so nothing is hidden; it is the paging that is coarse. Per-finding
-issue state is the first item on the deferred list if that granularity is needed.
+does not generate its own notification. The job summary lists every finding the
+scan produced, so nothing the scan *saw* is withheld; but that is not the same as
+listing everything wrong with the fleet, since a finding suppressed by a blind
+spot below never reaches the summary either. It is the paging that is coarse, and
+the blind spots that are the real limit. Per-finding issue state is the first
+deferred item if that granularity is needed.
 
 ## Known gaps
 
 These are gaps, not bugs. Each is a case where the watchdog will not tell you
 something you might assume it would.
 
-- **A required context that reports but never finishes.** D2 detects absence, not
-  a check parked in `queued` or `in_progress` forever. That deadlocks a PR just
-  as thoroughly.
+- **Results split across the head and test-merge commits.** GitHub evaluates
+  pull-request workflows against a synthetic test-merge commit, and the exact
+  per-context fallback is not fully specified. A result on *either* candidate
+  suppresses the finding, chosen to avoid a false-positive storm. The cost is
+  real: a context satisfied only on the head, while GitHub is evaluating the
+  test-merge commit, is missed.
+- **Fork PRs whose head repository was deleted.** The head commit becomes
+  unreadable from the base repo. That PR is recorded as a coverage failure — so
+  the run exits 2 rather than pretending — but it is not inspected.
 - **Repos with required contexts and no open PRs.** D2 has nothing to inspect
   until a PR opens. `windows-certificate-store-exporter` is the live example: 4
   required contexts, typically zero open PRs. Renovate acts as an accidental

@@ -173,8 +173,19 @@ class GitHub:
             raise ScanIntegrityError(f"GET {path} -> HTTP {status}: {message}")
         return body, ""
 
-    def paginate(self, path: str) -> Iterator[Any]:
+    def paginate(self, path: str, key: str | None = None) -> Iterator[Any]:
         """Follow Link rel=next to exhaustion.
+
+        `key` names the collection field for endpoints that wrap their results in
+        an envelope -- `/check-runs` returns `{"total_count", "check_runs"}` and
+        `/actions/runs` returns `{"total_count", "workflow_runs"}`, while `/pulls`
+        and `/orgs/{org}/repos` return bare arrays.
+
+        Getting this wrong is not a cosmetic error. An earlier revision yielded
+        the envelope dict itself; callers filtered it out for lacking the fields
+        they expected, so D1 silently found nothing at all and D2 saw zero check
+        runs. The shape mismatch is therefore an explicit, fail-closed assertion
+        rather than something to tolerate.
 
         Never infer completion from a short page: a filtered listing can return
         fewer than per_page and still carry a next link.
@@ -187,10 +198,22 @@ class GitHub:
             if status >= 400:
                 message = (body or {}).get("message", "") if isinstance(body, dict) else ""
                 raise ScanIntegrityError(f"GET {url} -> HTTP {status}: {message}")
-            if isinstance(body, list):
+
+            if key is None:
+                if not isinstance(body, list):
+                    raise ScanIntegrityError(
+                        f"GET {url} returned {type(body).__name__}, expected a JSON array. "
+                        "Refusing to guess at the response shape."
+                    )
                 yield from body
             else:
-                yield body
+                if not isinstance(body, dict) or key not in body:
+                    raise ScanIntegrityError(
+                        f"GET {url} did not contain the expected collection key {key!r}. "
+                        "Refusing to treat an unrecognized response as an empty result."
+                    )
+                yield from body[key]
+
             pages += 1
             if pages > 100:
                 raise ScanIntegrityError(f"pagination exceeded 100 pages for {path}")
@@ -328,15 +351,26 @@ def required_contexts(gh: GitHub, full_name: str, branch: str) -> set[tuple[str,
     return required
 
 
-def reported_contexts(gh: GitHub, full_name: str, sha: str) -> set[tuple[str, int | None]]:
-    """Every context GitHub holds a result for on `sha`, from both status mechanisms."""
-    reported: set[tuple[str, int | None]] = set()
+def reported_contexts(
+    gh: GitHub, full_name: str, sha: str
+) -> tuple[set[tuple[str, int | None]], set[str]]:
+    """Contexts GitHub holds a result for on `sha`, plus those still non-terminal.
 
-    for run in gh.paginate(f"/repos/{full_name}/commits/{sha}/check-runs?filter=latest"):
+    The second set matters because presence is not the same as satisfaction: a
+    required check parked in `queued` forever blocks a pull request exactly as
+    thoroughly as one that never appears, while looking present to a naive
+    membership test.
+    """
+    reported: set[tuple[str, int | None]] = set()
+    pending: set[str] = set()
+
+    for run in gh.paginate(f"/repos/{full_name}/commits/{sha}/check-runs?filter=latest", "check_runs"):
         if not isinstance(run, dict) or "name" not in run:
             continue
         app_id = (run.get("app") or {}).get("id")
         reported.add((run["name"], app_id))
+        if run.get("status") != "completed":
+            pending.add(run["name"])
 
     # The combined-status endpoint reports state "pending" with total_count 0 when
     # there are no statuses at all, so `state` says nothing about presence. Only the
@@ -346,12 +380,19 @@ def reported_contexts(gh: GitHub, full_name: str, sha: str) -> set[tuple[str, in
         raise ScanIntegrityError(f"combined status for {full_name}@{sha}: {message}")
     for status in (combined or {}).get("statuses", []):
         reported.add((status["context"], (status.get("creator") or {}).get("id")))
+        if status.get("state") == "pending":
+            pending.add(status["context"])
 
-    return reported
+    return reported, pending
 
 
 def satisfied(required: tuple[str, int | None], reported: set[tuple[str, int | None]]) -> bool:
-    """Is a required context satisfied by anything GitHub actually holds?
+    """Does GitHub hold a result for this required context?
+
+    Presence, not success -- a failing required check is a visible, ordinary CI
+    failure and not this tool's concern. Nor does presence imply the check ever
+    finished; a context stuck in `queued` is caught separately as D2b, precisely
+    because a membership test alone would call it healthy.
 
     An unpinned requirement accepts any producer. A requirement pinned to an app
     accepts only that app: a same-named check from a different producer is exactly
@@ -364,39 +405,65 @@ def satisfied(required: tuple[str, int | None], reported: set[tuple[str, int | N
 
 
 def classify_absence(gh: GitHub, full_name: str, sha: str) -> tuple[str, str]:
-    """Best-effort cause for an absent required context. Returns (cause, url)."""
+    """Best-effort cause for an absent required context. Returns (cause, url).
+
+    Diagnostic only -- it explains a finding, it never suppresses one. When the
+    cause cannot be established the finding still stands and says so, because a
+    confident wrong cause sends the operator down the wrong path, which is worse
+    than admitting ignorance.
+    """
     try:
         suites = gh.get(f"/repos/{full_name}/commits/{sha}/check-suites")
-    except ScanIntegrityError:
-        return ("unknown (check-suites unreadable)", "")
+    except ScanIntegrityError as exc:
+        return (f"cause undetermined - check-suites unreadable ({exc})", "")
 
-    for suite in (suites or {}).get("check_suites", []):
-        # Non-Actions apps park suites in `queued` with zero runs indefinitely;
-        # reading those as evidence produces confident nonsense.
-        if (suite.get("app") or {}).get("slug") != "github-actions":
-            continue
-        if suite.get("conclusion") == "startup_failure":
-            url = ""
-            try:
-                runs = gh.get(f"/repos/{full_name}/actions/runs?head_sha={sha}")
-                for run in runs.get("workflow_runs", []):
-                    if run.get("conclusion") == "startup_failure":
-                        url = run.get("html_url", "")
-                        break
-            except ScanIntegrityError:
-                pass
-            return ("workflow died before any job ran (startup_failure)", url)
-        if suite.get("conclusion") == "action_required":
-            return ("awaiting workflow approval", "")
+    # Collect every Actions suite rather than returning on the first match: suite
+    # order carries no causal meaning, and a repo commonly has several. An
+    # unrelated suite awaiting approval must not mask the startup failure that is
+    # actually blocking the required check.
+    #
+    # Non-Actions apps park suites in `queued` with zero runs indefinitely, so
+    # reading those as evidence produces confident nonsense.
+    conclusions = {
+        suite.get("conclusion")
+        for suite in (suites or {}).get("check_suites", [])
+        if (suite.get("app") or {}).get("slug") == "github-actions"
+    }
 
-    return ("no workflow run was created for this commit", "")
+    if "startup_failure" in conclusions:
+        url = ""
+        try:
+            runs = gh.get(f"/repos/{full_name}/actions/runs?head_sha={sha}")
+            for run in runs.get("workflow_runs", []):
+                if run.get("conclusion") == "startup_failure":
+                    url = run.get("html_url", "")
+                    break
+        except ScanIntegrityError:
+            pass  # The cause is already established; only the link is missing.
+        return ("workflow died before any job ran (startup_failure)", url)
+
+    if "action_required" in conclusions:
+        return ("awaiting workflow approval", "")
+
+    if not conclusions:
+        return ("no GitHub Actions run was created for this commit", "")
+
+    return (f"no matching producer; Actions suites concluded {sorted(map(str, conclusions))}", "")
 
 
 def scan_d1(gh: GitHub, repo: dict, since: datetime, scan: Scan) -> None:
     full_name = repo["full_name"]
-    stamp = since.strftime("%Y-%m-%dT%H:%M:%SZ")
-    path = f"/repos/{full_name}/actions/runs?status=startup_failure&created=>{urllib.parse.quote(stamp)}"
-    for run in gh.paginate(path):
+    # Encode the whole qualifier, operator included. `created=>2026-...` leaves a
+    # raw `>` in the query string, which is a reserved character whose handling
+    # is not guaranteed by every intermediary -- and a silently dropped date
+    # filter would make D1 re-report the entire run history every cycle.
+    query = urllib.parse.urlencode(
+        {
+            "status": "startup_failure",
+            "created": f">{since.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        }
+    )
+    for run in gh.paginate(f"/repos/{full_name}/actions/runs?{query}", "workflow_runs"):
         if not isinstance(run, dict) or "id" not in run:
             continue
         event = run.get("event", "")
@@ -429,65 +496,91 @@ def scan_d2(gh: GitHub, repo: dict, cfg: dict, scan: Scan) -> None:
         if not isinstance(pr, dict) or "number" not in pr:
             continue
         scan.prs_seen += 1
-        number = pr["number"]
-        base = pr["base"]["ref"]
-        head_sha = pr["head"]["sha"]
-
-        required = required_contexts(gh, full_name, base)
-        if not required:
-            continue
-
-        # Candidate commits: GitHub evaluates pull-request workflows against a
-        # synthetic test-merge commit, but results can land on either, and which one
-        # counts is not fully specified. Taking the union is the conservative read --
-        # it can only suppress a false alarm, never manufacture one.
-        candidates = [head_sha]
-        merge_sha = pr.get("merge_commit_sha")
-        if merge_sha and merge_sha != head_sha:
-            candidates.append(merge_sha)
-
-        reported: set[tuple[str, int | None]] = set()
-        for sha in candidates:
-            reported |= reported_contexts(gh, full_name, sha)
-
-        missing = sorted(
-            (ctx for ctx in required if not satisfied(ctx, reported)), key=lambda c: c[0]
-        )
-        if not missing:
-            continue
-
-        # A brand-new head has not had time to report. Defer rather than alert,
-        # but measure the head COMMIT's age, not the PR's updated_at -- a comment
-        # bumps updated_at, so an active PR could otherwise defer past its own
-        # grace indefinitely and never be reported.
-        #
-        # A ScanIntegrityError here is deliberately NOT caught: if the commit is
-        # unreadable the credential has a problem, and that must surface as a
-        # coverage failure rather than be smoothed over with a guessed timestamp.
-        commit = gh.get(f"/repos/{full_name}/commits/{head_sha}")
+        # Isolate each pull request. A single unreadable PR -- a fork whose head
+        # repository was deleted still leaves an open PR whose head commit the
+        # base repo can no longer serve -- must not abort the remaining PRs in
+        # this repository. It is still recorded, so the run exits 2 either way.
         try:
-            age = utcnow() - parse_ts(commit["commit"]["committer"]["date"])
-        except (KeyError, TypeError, ValueError):
-            # Malformed timestamp: fall back to the PR's own age. Erring toward
-            # "old" reports rather than suppresses, which is the safe direction.
-            age = utcnow() - parse_ts(pr["created_at"])
-        if age < grace:
-            scan.deferred += 1
-            continue
+            _scan_one_pr(gh, full_name, pr, grace, scan)
+        except ScanIntegrityError as exc:
+            scan.fail(f"{full_name} PR #{pr['number']}", str(exc))
 
-        cause, url = classify_absence(gh, full_name, head_sha)
+
+def _scan_one_pr(gh: GitHub, full_name: str, pr: dict, grace: timedelta, scan: Scan) -> None:
+    number = pr["number"]
+    base = pr["base"]["ref"]
+    head_sha = pr["head"]["sha"]
+
+    required = required_contexts(gh, full_name, base)
+    if not required:
+        return
+
+    # Candidate commits: GitHub evaluates pull-request workflows against a
+    # synthetic test-merge commit, but results can land on either and the exact
+    # per-context fallback is not fully specified. The union is chosen to avoid a
+    # false-positive storm, and the trade is explicit: because a result on EITHER
+    # candidate suppresses the finding, a context satisfied only on the head while
+    # the test-merge commit is the one GitHub actually evaluates would be missed.
+    # This is a known false-negative path, recorded in the runbook's Known gaps.
+    candidates = [head_sha]
+    merge_sha = pr.get("merge_commit_sha")
+    if merge_sha and merge_sha != head_sha:
+        candidates.append(merge_sha)
+
+    reported: set[tuple[str, int | None]] = set()
+    pending: set[str] = set()
+    for sha in candidates:
+        sha_reported, sha_pending = reported_contexts(gh, full_name, sha)
+        reported |= sha_reported
+        pending |= sha_pending
+
+    missing = sorted(
+        (ctx for ctx in required if not satisfied(ctx, reported)), key=lambda c: c[0]
+    )
+
+    # A required context that reported but never finishes deadlocks the PR just
+    # as effectively as one that never appeared, while passing a naive presence
+    # check. Report it separately rather than letting presence imply health.
+    stuck = sorted(ctx for ctx, _ in required if ctx in pending)
+
+    if not missing and not stuck:
+        return
+
+    # A brand-new head has not had time to report. Defer rather than alert, but
+    # measure the head COMMIT's age, not the PR's updated_at -- a comment bumps
+    # updated_at, so an active PR could otherwise defer past its own grace
+    # indefinitely and never be reported.
+    #
+    # A ScanIntegrityError here is deliberately NOT caught: if the commit is
+    # unreadable that is a coverage failure, recorded by the caller, rather than
+    # something to smooth over with a guessed timestamp.
+    commit = gh.get(f"/repos/{full_name}/commits/{head_sha}")
+    try:
+        age = utcnow() - parse_ts(commit["commit"]["committer"]["date"])
+    except (KeyError, TypeError, ValueError):
+        age = utcnow() - parse_ts(pr["created_at"])
+    # Committer dates are author-controlled and can be future-dated, which yields
+    # a negative age that would sit inside the grace window until wall time caught
+    # up -- deferring a real deadlock indefinitely. An implausible timestamp
+    # forfeits the grace rather than extending it.
+    if timedelta(0) <= age < grace:
+        scan.deferred += 1
+        return
+
+    cause, url = classify_absence(gh, full_name, head_sha)
+    draft = pr.get("draft", False)
+    conflicted = pr.get("mergeable") is False
+
+    if conflicted:
+        severity = "warn"
+        cause = f"{cause}; PR also has merge conflicts (primary blocker)"
+    elif draft:
+        severity = "warn"
+    else:
+        severity = "page"
+
+    if missing:
         names = ", ".join(ctx for ctx, _ in missing)
-        draft = pr.get("draft", False)
-        conflicted = pr.get("mergeable") is False
-
-        if conflicted:
-            severity = "warn"
-            cause = f"{cause}; PR also has merge conflicts (primary blocker)"
-        elif draft:
-            severity = "warn"
-        else:
-            severity = "page"
-
         scan.findings.append(
             Finding(
                 kind="D2",
@@ -497,6 +590,23 @@ def scan_d2(gh: GitHub, repo: dict, cfg: dict, scan: Scan) -> None:
                 detail=f"base={base} head={head_sha[:12]} cause={cause}",
                 fingerprint=fingerprint("D2", full_name, str(number), base, names),
                 url=url or pr.get("html_url", ""),
+            )
+        )
+
+    if stuck:
+        names = ", ".join(stuck)
+        scan.findings.append(
+            Finding(
+                kind="D2b",
+                severity="warn" if (draft or conflicted) else severity,
+                repo=full_name,
+                summary=f"PR #{number}: required check(s) reported but never finished: {names}",
+                detail=(
+                    f"base={base} head={head_sha[:12]} "
+                    "still non-terminal; blocks the merge exactly as an absent check would"
+                ),
+                fingerprint=fingerprint("D2b", full_name, str(number), base, names),
+                url=pr.get("html_url", ""),
             )
         )
 
@@ -525,7 +635,16 @@ def render(scan: Scan, cfg: dict) -> str:
     order = {"page": 0, "warn": 1, "notice": 2}
     findings = sorted(scan.findings, key=lambda f: (order.get(f.severity, 3), f.repo))
     if not findings:
-        lines.append("No deadlocked pull requests and no startup failures.")
+        # Only ever claim health after a COMPLETE scan. Emitting an all-clear
+        # sentence below a coverage-failure section invites anything that reads
+        # the last line -- a human skimming, or a notification excerpt -- to
+        # report green off a scan that proved nothing.
+        lines.append(
+            "No deadlocked pull requests and no startup failures."
+            if not scan.unscanned
+            else "No findings among the repositories that were successfully scanned. "
+            "This is NOT an all-clear: see the coverage failures above."
+        )
         return "\n".join(lines)
 
     for severity, heading in (
