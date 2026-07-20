@@ -29,3 +29,14 @@ The material fork risk is workflow execution at the runner layer. Self-hosted dy
 2. Enable runner groups for public repositories only where intended, and restrict those groups to selected repositories and workflows.
 3. Keep the default `GITHUB_TOKEN` read-only, never combine `pull_request_target` with checkout of pull-request head code, and pin actions by full commit SHA.
 4. Use ephemeral single-use runners, egress NetworkPolicy, and OIDC instead of long-lived secrets at the cluster layer.
+
+## Removing an `actions:` block LOOSENS policy
+
+Deleting a repository's `actions:` block from its YAML destroys the
+`github_actions_repository_permissions` resource, and the provider's delete path
+resets the repository to `allowed_actions: all` with Actions enabled. Un-declaring
+an Actions policy therefore makes the repository **more** permissive, not neutral.
+
+To tighten or retire a policy, change the declared values (for example set
+`allowed_actions: all` explicitly) rather than removing the block, so the intent is
+visible in review and the live result matches the diff.

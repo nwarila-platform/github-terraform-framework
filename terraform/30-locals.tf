@@ -723,9 +723,22 @@ locals {
             try(repository.actions.allowed_actions_config.github_owned_allowed, null),
             true
           )
+          # Default FALSE (fail-closed). `verified_allowed` permits any Marketplace
+          # action from a GitHub-verified creator, and there is NO supported API
+          # that resolves whether a given action would qualify — so a repo relying
+          # on it has an allow surface that cannot be statically proven. Defaulting
+          # true silently granted that surface to every `selected` repo. With false,
+          # coverage is decidable from same-owner / github-owned / patterns_allowed,
+          # and any genuine need becomes an explicit, reviewable pattern.
+          #
+          # Inert at introduction: this default only applies when a repo declares
+          # allowed_actions_config but OMITS verified_allowed. Verified 2026-07-20
+          # across all 21 repos (20 public YAMLs + the 1 S3-only private def): zero
+          # such repos exist, so this changes no live policy — it is a contract for
+          # future onboarding.
           verified_allowed = coalesce(
             try(repository.actions.allowed_actions_config.verified_allowed, null),
-            true
+            false
           )
           patterns_allowed = try(
             repository.actions.allowed_actions_config.patterns_allowed,

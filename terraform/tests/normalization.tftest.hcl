@@ -717,3 +717,75 @@ run "fork_repo_passes_through_source_fields" {
 }
 
 #endregion --- [ Fork normalization regression (N13) ] --------------------------------------- #
+
+#region ------ [ allowed_actions_config normalization defaults ] ----------------------------- #
+# Before these runs the coalesce chain for github_owned_allowed / verified_allowed /
+# patterns_allowed had ZERO test coverage — the defaults could be changed silently.
+# verified_allowed defaults FALSE (fail-closed): it grants an allow surface that no
+# supported API can statically resolve, so it must be opted into explicitly.
+
+run "actions_config_omitted_fields_take_failclosed_defaults" {
+  command = plan
+
+  variables {
+    repo_yaml_path = "tests/fixtures/good-actions-config"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-omitted-repo"].actions.allowed_actions_config.verified_allowed == false
+    error_message = "omitted verified_allowed must default to false (fail-closed), not true"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-omitted-repo"].actions.allowed_actions_config.github_owned_allowed == true
+    error_message = "omitted github_owned_allowed must default to true"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-omitted-repo"].actions.allowed_actions_config.patterns_allowed == ["example-org/example-action@*"]
+    error_message = "patterns_allowed must pass through unchanged"
+  }
+
+  assert {
+    condition     = length(output.validation_errors) == 0
+    error_message = "fixture must normalize cleanly"
+  }
+}
+
+run "actions_config_explicit_verified_true_is_preserved" {
+  command = plan
+
+  variables {
+    repo_yaml_path = "tests/fixtures/good-actions-config"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-explicit-true-repo"].actions.allowed_actions_config.verified_allowed == true
+    error_message = "explicit verified_allowed=true must be preserved (opt-in still works)"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-explicit-true-repo"].actions.allowed_actions_config.patterns_allowed == []
+    error_message = "explicit empty patterns_allowed must be preserved"
+  }
+}
+
+run "actions_config_explicit_false_values_are_preserved" {
+  command = plan
+
+  variables {
+    repo_yaml_path = "tests/fixtures/good-actions-config"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-explicit-false-repo"].actions.allowed_actions_config.verified_allowed == false
+    error_message = "explicit verified_allowed=false must be preserved"
+  }
+
+  assert {
+    condition     = output.all_repositories["actions-explicit-false-repo"].actions.allowed_actions_config.github_owned_allowed == false
+    error_message = "explicit github_owned_allowed=false must be preserved (coalesce must not override an explicit false)"
+  }
+}
+
+#endregion --- [ allowed_actions_config normalization defaults ] ----------------------------- #
