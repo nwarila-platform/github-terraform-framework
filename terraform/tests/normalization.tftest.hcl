@@ -473,10 +473,6 @@ run "good_minimal_carries_expected_defaults" {
     condition     = output.all_repositories["example-public-repo"].vulnerability_alerts == false
     error_message = "vulnerability_alerts default must be false"
   }
-  assert {
-    condition     = output.all_repositories["example-public-repo"].dependabot_security_updates == false
-    error_message = "dependabot_security_updates default must be false"
-  }
 
   # Visibility
   assert {

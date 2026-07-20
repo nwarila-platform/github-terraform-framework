@@ -14,7 +14,6 @@ This file is overwritten by `terraform-docs` on every PR via the
 | [github_branch.branches](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/branch) | resource |
 | [github_branch_default.default](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/branch_default) | resource |
 | [github_repository.repo](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository) | resource |
-| [github_repository_dependabot_security_updates.repo](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_dependabot_security_updates) | resource |
 | [github_repository_environment.environment](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_environment) | resource |
 | [github_repository_environment_deployment_policy.environment](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_environment_deployment_policy) | resource |
 | [github_repository_file.codeowners](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_file) | resource |

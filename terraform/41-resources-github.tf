@@ -227,17 +227,32 @@ resource "github_repository" "repo" {
   depends_on = [terraform_data.framework_validation]
 }
 
-resource "github_repository_dependabot_security_updates" "repo" {
-  for_each = {
-    for repository_name, repository in local.all_repositories :
-    repository_name => repository
-    if !repository.archived
+# github_repository_dependabot_security_updates was REMOVED 2026-07-19.
+#
+# WHY: this org uses Renovate exclusively for dependency updates; Dependabot is
+# not part of the toolchain and must not be managed here. Verified before
+# removal: all 21 repositories already report automated-security-fixes
+# enabled=false and vulnerability-alerts disabled (404), so dropping the
+# resource is a ZERO posture change - it only stops an API call that could
+# never succeed.
+#
+# The call could never succeed because GitHub rejects configuring automated
+# security fixes at all while vulnerability alerts are off:
+#   DELETE /repos/{owner}/{repo}/automated-security-fixes
+#   422 "Vulnerability alerts must be enabled to configure automated security fixes."
+# The provider's Create with enabled=false issues that same DELETE, so every
+# repo on the defaults produced an unsatisfiable write that failed the apply.
+#
+# The `removed` block below forgets the 20 in-state instances WITHOUT calling
+# the API. Deleting the resource block alone would plan 20 DESTROYS, and the
+# provider's Delete issues the identical failing DELETE - trading create-time
+# failures for destroy-time ones. `destroy = false` is load-bearing.
+removed {
+  from = github_repository_dependabot_security_updates.repo
+
+  lifecycle {
+    destroy = false
   }
-
-  repository = github_repository.repo[each.key].name
-  enabled    = each.value.dependabot_security_updates
-
-  depends_on = [github_repository.repo]
 }
 
 resource "github_branch_default" "default" {

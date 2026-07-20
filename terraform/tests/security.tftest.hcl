@@ -575,15 +575,17 @@ run "invalid_pin_exclude_blocks_plan" {
   expect_failures = [terraform_data.framework_validation]
 }
 
-run "dependabot_explicit_alert_opt_in_coalesces_updates" {
+# Dependabot per-repo management was removed 2026-07-19 (Renovate is the only
+# dependency tool in this org), so the old
+# "explicit vulnerability_alerts=true coalesces dependabot updates to true"
+# behaviour no longer exists. The vulnerability_alerts half is still managed and
+# still worth asserting.
+run "explicit_vulnerability_alerts_opt_in_is_honoured" {
   command = plan
   variables { repo_yaml_path = "tests/fixtures/good-precedence" }
   assert {
-    condition = (
-      output.all_repositories["good-precedence-repo"].vulnerability_alerts == true &&
-      output.all_repositories["good-precedence-repo"].dependabot_security_updates == true
-    )
-    error_message = "explicit vulnerability_alerts=true must coalesce omitted dependabot updates to true"
+    condition     = output.all_repositories["good-precedence-repo"].vulnerability_alerts == true
+    error_message = "explicit vulnerability_alerts=true must be honoured"
   }
 }
 

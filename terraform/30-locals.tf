@@ -55,7 +55,7 @@ locals {
     "web_commit_signoff_required",
     "auto_init", "gitignore_template", "license_template",
     "archived", "archive_on_destroy",
-    "vulnerability_alerts", "dependabot_security_updates",
+    "vulnerability_alerts",
     "pages", "security_and_analysis", "unmanaged_security_features", "template",
     "branches", "rules", "actions", "environments",
     "codeowners", "required_checks",
@@ -110,7 +110,6 @@ locals {
     archived                    = false
     archive_on_destroy          = true
     vulnerability_alerts        = false
-    dependabot_security_updates = false
   }
 
   # Names of every feature in the security capability / baseline matrix.
@@ -597,12 +596,6 @@ locals {
       vulnerability_alerts = coalesce(
         try(repository.vulnerability_alerts, null),
         local.repo_setting_defaults.vulnerability_alerts
-      )
-
-      dependabot_security_updates = coalesce(
-        try(repository.dependabot_security_updates, null),
-        try(repository.vulnerability_alerts, null),
-        local.repo_setting_defaults.dependabot_security_updates
       )
 
       #endregion --- [ Dependabot / Vulnerability Alerts ] ----------------------------------- #
