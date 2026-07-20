@@ -121,6 +121,7 @@ terraform test
 | N14 | Fork normalization (source_owner / source_repo) | ✅ | `normalization.tftest.hcl::fork_repo_passes_through_source_fields` |
 | N15 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
+| N17 | `allowed_actions_config` defaults (verified_allowed fail-closed, github_owned, patterns) | ✅ | `normalization.tftest.hcl::actions_config_omitted_fields_take_failclosed_defaults` + explicit-true / explicit-false runs |
 | CO1 | Org mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::org_mode_uses_global_codeowners_default` |
 | CO2 | Per-repo `codeowners` overrides the global default | ✅ | `normalization.tftest.hcl::org_mode_per_repo_codeowners_overrides_global_default` |
 | CO3 | Personal mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::personal_mode_uses_global_codeowners_default` |
@@ -168,10 +169,10 @@ terraform test
 | Global validation | 39 | 39 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 15 | 15 | 100% |
+| Normalization paths | 17 | 17 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **81** | **81** | **100%** |
+| **Overall** | **83** | **83** | **100%** |
 
 ## Test run count and artifacts
 

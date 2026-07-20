@@ -58,6 +58,13 @@
 !/terraform/tests/fixtures/bad-actions-enum/
 !/terraform/tests/fixtures/bad-actions-enum/private/
 !/terraform/tests/fixtures/bad-actions-enum/private/bad.yml
+
+# Keep the good-actions-config fixture (allowed_actions_config normalization).
+!/terraform/tests/fixtures/good-actions-config/
+!/terraform/tests/fixtures/good-actions-config/private/
+!/terraform/tests/fixtures/good-actions-config/private/.gitkeep
+!/terraform/tests/fixtures/good-actions-config/public/
+!/terraform/tests/fixtures/good-actions-config/public/repo.yml
 !/terraform/tests/fixtures/bad-actions-selected-no-config/
 !/terraform/tests/fixtures/bad-actions-selected-no-config/private/
 !/terraform/tests/fixtures/bad-actions-selected-no-config/private/bad.yml

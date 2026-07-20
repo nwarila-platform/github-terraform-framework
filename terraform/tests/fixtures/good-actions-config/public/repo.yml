@@ -1,0 +1,35 @@
+# Exercises the allowed_actions_config normalization defaults. Before this
+# fixture existed, the coalesce chain for github_owned_allowed / verified_allowed
+# / patterns_allowed was covered by ZERO tests.
+actions-omitted-repo:
+  description: "Declares allowed_actions_config but omits every optional field."
+  visibility: "public"
+  actions:
+    enabled: true
+    allowed_actions: selected
+    allowed_actions_config:
+      patterns_allowed:
+        - "example-org/example-action@*"
+
+actions-explicit-true-repo:
+  description: "Explicitly opts in to verified_allowed."
+  visibility: "public"
+  actions:
+    enabled: true
+    allowed_actions: selected
+    allowed_actions_config:
+      github_owned_allowed: true
+      verified_allowed: true
+      patterns_allowed: []
+
+actions-explicit-false-repo:
+  description: "Explicitly opts out of verified_allowed."
+  visibility: "public"
+  actions:
+    enabled: true
+    allowed_actions: selected
+    allowed_actions_config:
+      github_owned_allowed: false
+      verified_allowed: false
+      patterns_allowed:
+        - "example-org/other@v1"
