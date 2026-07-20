@@ -147,3 +147,22 @@ jobs:
       - name: Fail if tests failed
         if: steps.test_human.outcome == 'failure' || steps.fmt.outcome == 'failure'
         run: exit 1
+
+  watchdog:
+    name: Fleet watchdog tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      # The watchdog is the control that detects a required check silently
+      # failing to report. If it regresses, nothing else in this repo notices --
+      # it is the only thing watching for that failure mode, so it needs its own
+      # gate rather than riding along on the terraform suite.
+      - name: Unit tests
+        working-directory: tools
+        run: python3 -m unittest test_fleet_watchdog -v

@@ -1,0 +1,28 @@
+{
+  "organization": "nwarila-platform",
+  "expected_login": "NWarila",
+
+  "_private_canary_repo": "Proves the credential still has private visibility. Identity drift degrades a token to public-only, under which public repos keep answering and private ones 404 - so the scan completes and reports rows that are quietly wrong. Nothing else in the run detects that.",
+  "private_canary_repo": "nwarila-platform/aws-terraform-framework",
+
+  "_legacy_protection_canary": "Proves the run can tell 'no legacy branch protection' apart from 'lost Administration:read'. GitHub masks a 403 here as a bare 'Not Found', so without this probe a token that quietly lost the permission would report every branch unprotected, forever, with no error.",
+  "legacy_protection_canary": {
+    "repo": "nwarila-platform/talos-cluster",
+    "branch": "main"
+  },
+
+  "_sentinel_repositories": "Must appear in every enumeration. windows-certificate-store-exporter is deliberate: it carries 4 required contexts and typically has zero open PRs, so it is the repo D2 is most likely to be silently blind to.",
+  "sentinel_repositories": [
+    "nwarila-platform/talos-cluster",
+    "nwarila-platform/github-terraform-framework",
+    "nwarila-platform/windows-certificate-store-exporter"
+  ],
+
+  "_minimum_repository_count": "Gross-failure floor only (21 repos as of 2026-07-20). Precision is the canary's job: a public-only token would still clear a count-based floor, since 18 of 21 repos are public.",
+  "minimum_repository_count": 15,
+
+  "_fresh_head_grace_minutes": "Measured against the head COMMIT's age, not the PR's updated_at - a comment bumps updated_at, so an active PR could otherwise defer past its own grace indefinitely. Observed: checks post within ~2 minutes, startup_failure within seconds.",
+  "fresh_head_grace_minutes": 30,
+
+  "d1_lookback_hours": 24
+}

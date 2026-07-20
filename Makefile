@@ -39,6 +39,9 @@ opa-test:
 		echo "no OPA policies to test"; \
 	fi
 
+watchdog-test:
+	cd tools && $(PYTHON) -m unittest test_fleet_watchdog
+
 ci:
 	$(MAKE) fmt-check
 	$(MAKE) init
@@ -48,3 +51,4 @@ ci:
 	$(MAKE) docs-diff
 	$(MAKE) docs-check
 	$(MAKE) opa-test
+	$(MAKE) watchdog-test
