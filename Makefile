@@ -39,6 +39,9 @@ opa-test:
 		echo "no OPA policies to test"; \
 	fi
 
+destroy-guard-test:
+	$(PYTHON) tools/test_destroy_guard.py
+
 assemble-guard-test:
 	bash tools/test_assemble_guard.sh
 
@@ -52,3 +55,4 @@ ci:
 	$(MAKE) docs-check
 	$(MAKE) opa-test
 	$(MAKE) assemble-guard-test
+	$(MAKE) destroy-guard-test

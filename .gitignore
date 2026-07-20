@@ -194,6 +194,7 @@
 !/tools/
 !/tools/check_docs_layout.py
 !/tools/test_assemble_guard.sh
+!/tools/test_destroy_guard.py
 
 # Contract files (seeded by seed_consumer.py)
 !/terraform/locals.tf

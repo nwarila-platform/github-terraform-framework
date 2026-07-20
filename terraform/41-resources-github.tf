@@ -205,6 +205,18 @@ resource "github_repository" "repo" {
   # check repo-scoped invariants so their errors point at the specific
   # github_repository.repo[<name>] address.
   lifecycle {
+    # NOTE: prevent_destroy is deliberately NOT set here. `archive_on_destroy`
+    # defaults to true, and the provider's delete path archives the repository
+    # rather than deleting it — so removing a definition retires the repository
+    # instead of destroying it, which is the intended behaviour. prevent_destroy
+    # would block that archive too, replacing a working retirement path with a
+    # hard plan error.
+    #
+    # Genuine deletion, and archiving a repository that was not deliberately
+    # archived first, are both refused by the destroy guard in
+    # .github/workflows/reusable-terraform-deploy.yaml. That guard can read the
+    # plan's before-state, which a lifecycle meta-argument cannot.
+
     # `auto_init` and `license_template` are CREATE-time only; ignoring
     # them prevents spurious diff after the initial create. `allow_forking`
     # defaults to true for public, false for internal and organization-owned
