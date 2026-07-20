@@ -518,6 +518,92 @@ jobs:
           # (sensitive TF_VARs already render as "(sensitive value)".)
           terraform show -json tfplan > plan.json
 
+      - name: Guard repository destroys
+        working-directory: framework/terraform
+        run: |
+          set -euo pipefail
+          # A Terraform "delete" of github_repository is NOT necessarily a
+          # deletion. `archive_on_destroy` defaults to true, and the provider's
+          # delete path then archives the repository instead - so removing a
+          # definition retires it, which is the intended behaviour. The plan
+          # shows `delete` either way, so the plan alone cannot tell you which
+          # you are about to do. This step can, because it reads the before-state.
+          #
+          # Refused:
+          #   archive_on_destroy = false  -> a genuine, irreversible deletion.
+          #   repository not already archived -> archiving as a SIDE EFFECT of a
+          #     definition going missing. That is the signature of a bug, not a
+          #     retirement: a dotfile-blind glob dropped a definitions file, the
+          #     repository stopped being declared, and the plan proposed to
+          #     archive a live public org-profile repository.
+          #
+          # Allowed:
+          #   already-archived repository leaving the config -> the provider
+          #   no-ops and state simply forgets it. This is the last step of a
+          #   deliberate retirement.
+          python3 - <<'PY'
+          import json, sys
+
+          with open("plan.json", encoding="utf-8") as fh:
+              plan = json.load(fh)
+
+          deletions, premature, retiring, other = [], [], [], []
+          for rc in plan.get("resource_changes", []):
+              if "delete" not in rc.get("change", {}).get("actions", []):
+                  continue
+              addr = rc.get("address", "")
+              if rc.get("type") != "github_repository":
+                  other.append(addr)
+                  continue
+              before = rc.get("change", {}).get("before") or {}
+              if not before.get("archive_on_destroy", True):
+                  deletions.append(addr)
+              elif not before.get("archived", False):
+                  premature.append(addr)
+              else:
+                  retiring.append(addr)
+
+          if other:
+              # Dependent resources legitimately churn, but a destroy should
+              # never scroll past unread.
+              print(f"note: {len(other)} non-repository resource(s) will be destroyed:")
+              for a in sorted(other)[:20]:
+                  print(f"  {a}")
+              print()
+
+          for addr in sorted(retiring):
+              print(f"ok: {addr} is already archived; leaving management is a no-op on GitHub.")
+
+          if deletions:
+              print("::error::REFUSING TO DELETE REPOSITORIES.")
+              for addr in sorted(deletions):
+                  print(f"::error::  {addr}  (archive_on_destroy = false)")
+              print()
+              print("Terraform does not delete repositories here. Remove")
+              print("`archive_on_destroy: false` from the repository's YAML; retirement is")
+              print("`archived: true`, then a deliberate delete in the GitHub UI.")
+
+          if premature:
+              print("::error::REFUSING TO ARCHIVE REPOSITORIES THAT WERE NOT ARCHIVED FIRST.")
+              for addr in sorted(premature):
+                  print(f"::error::  {addr}")
+              print()
+              print("These would be archived only because their definition is no longer")
+              print("being read. If that was not intended, check the assembly step's file")
+              print("counts - a definition silently going missing is the known cause of")
+              print("this plan shape, and archiving a live repository breaks its CI.")
+              print()
+              print("To retire a repository deliberately: set `archived: true` and apply,")
+              print("THEN remove its YAML. This step allows that second removal.")
+
+          if deletions or premature:
+              sys.exit(1)
+
+          if not retiring:
+              print("No repository destroys in this plan.")
+          PY
+
+
       # Publishes on EVERY run, not just plan_only. The plan render is suppressed
       # from the (public) Actions log, so without this a workflow_dispatch plan
       # (apply=false) — the pre-apply review path — produced NO reviewable output
