@@ -193,6 +193,7 @@
 !/Makefile
 !/tools/
 !/tools/check_docs_layout.py
+!/tools/test_assemble_guard.sh
 
 # Contract files (seeded by seed_consumer.py)
 !/terraform/locals.tf

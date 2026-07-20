@@ -39,6 +39,9 @@ opa-test:
 		echo "no OPA policies to test"; \
 	fi
 
+assemble-guard-test:
+	bash tools/test_assemble_guard.sh
+
 ci:
 	$(MAKE) fmt-check
 	$(MAKE) init
@@ -48,3 +51,4 @@ ci:
 	$(MAKE) docs-diff
 	$(MAKE) docs-check
 	$(MAKE) opa-test
+	$(MAKE) assemble-guard-test

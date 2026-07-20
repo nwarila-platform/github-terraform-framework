@@ -218,10 +218,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p framework/terraform/repos/public framework/terraform/repos/private
-          if [ -d runner/terraform/public ] && compgen -G "runner/terraform/public/*" > /dev/null; then
+
+          # The guards below MUST see dotfiles. `compgen -G "dir/*"` does not:
+          # bash globbing skips leading-dot entries, so a directory holding only
+          # `.github.yml` reads as empty, the copy is skipped, and the repository
+          # silently ceases to be declared -- which Terraform then plans to
+          # DELETE, along with its rulesets and branch default. That is not
+          # hypothetical: it produced a 6-resource destroy plan including
+          # `github_repository.repo[".github"]`, and nothing in the framework
+          # sets prevent_destroy on repositories to stop it.
+          #
+          # `cp -a dir/.` on the next line already handles dotfiles correctly;
+          # the glob guard defeated the very case that syntax exists for. `ls -A`
+          # lists dotfiles while still excluding . and .. -- and cp of an empty
+          # directory is harmless, so the guard is only an optimisation anyway.
+          if [ -d runner/terraform/public ] && [ -n "$(ls -A runner/terraform/public)" ]; then
             cp -a runner/terraform/public/. framework/terraform/repos/public/
           fi
-          if [ -d runner/terraform/private ] && compgen -G "runner/terraform/private/*" > /dev/null; then
+          if [ -d runner/terraform/private ] && [ -n "$(ls -A runner/terraform/private)" ]; then
             cp -a runner/terraform/private/. framework/terraform/repos/private/
           fi
           if [ -f runner/terraform/org.auto.tfvars ]; then
