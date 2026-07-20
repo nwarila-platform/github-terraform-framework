@@ -133,7 +133,7 @@ terraform test
 
 | # | Filter | Status | Test |
 |---|---|---|---|
-| F01 | `github_repository_dependabot_security_updates` excludes archived | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` (transitive) |
+| F01 | `github_repository_dependabot_security_updates` removed 2026-07-19 (Renovate-only org); org-level defaults remain pinned false | ✅ | `org_settings.tftest.hcl` (org-level enforcement) |
 | F02 | `github_repository_file.codeowners` excludes archived + null effective | ✅ | `normalization.tftest.hcl::good_minimal_produces_zero_environments_zero_codeowners` |
 | F03 | `github_actions_repository_permissions.actions` excludes archived + null actions | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |
 | F04 | `branches` local excludes archived + empty branch list | ✅ | `normalization.tftest.hcl::archived_repo_filters_out_downstream_locals` |

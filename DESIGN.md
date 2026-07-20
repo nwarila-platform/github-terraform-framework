@@ -524,18 +524,27 @@ Enables Dependabot vulnerability alerts for known CVEs in dependencies.
 
 **Recommendation**: `true` for all repos. Dependabot alerts are free, automatic, and essential. Ignoring known vulnerabilities in dependencies is the #6 item on the [OWASP Top 10 (A06:2021)](https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/). Enabling them is one of the clearest low-friction security defaults a repository can have.
 
-### 7.2 `dependabot_security_updates`
+### 7.2 `dependabot_security_updates` — REMOVED 2026-07-19
 
 | | |
 |---|---|
-| **Type** | `bool` |
-| **Default** | `true` |
-| **Resource** | `github_repository_dependabot_security_updates` |
+| **Status** | **Not managed per repository.** The `github_repository_dependabot_security_updates` resource was removed. |
+| **Why** | This organization uses **Renovate exclusively** for dependency updates. Dependabot is not part of the toolchain. |
+| **Enforcement that remains** | ORG-level `dependabot_alerts` / `dependabot_security_updates` under `org_settings.security_defaults_for_new_repositories`, both pinned `false`, so NEW repositories never receive Dependabot. Per-repo `vulnerability_alerts` is still managed `false`. |
 | **Governance** | [GitHub Docs: Dependabot Security Updates](https://docs.github.com/en/code-security/dependabot/dependabot-security-updates/about-dependabot-security-updates) |
 
-Enables Dependabot to automatically create PRs to fix vulnerable dependencies.
+There was also a hard mechanical reason the per-repo resource could not stay: the
+provider's Create with `enabled = false` issues
+`DELETE /repos/{owner}/{repo}/automated-security-fixes`, which GitHub rejects with
+**422 "Vulnerability alerts must be enabled to configure automated security fixes"**
+whenever alerts are off. With alerts off org-wide, every repository on the defaults
+produced an unsatisfiable write that failed the apply.
 
-**Recommendation**: `true` for all non-archived repos. Automated security patches paired with auto-merge and branch protection create a continuous patching pipeline with zero manual intervention for safe upgrades. This is a core tenet of [SLSA Level 1](https://slsa.dev/spec/v1.0/levels#build-l1).
+⚠️ **Known limitation:** because no instances exist for non-opted-in repositories,
+Terraform cannot detect out-of-band enablement on an existing repository. It enforces
+the configuration default and the future-repo org default, not continuous drift
+correction. If continuous "zero repos" enforcement is required, add an audit control
+outside this provider resource.
 
 ### 7.3 `advanced_security`
 

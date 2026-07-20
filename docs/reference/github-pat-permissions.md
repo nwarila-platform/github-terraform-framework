@@ -13,7 +13,7 @@ For a runner that applies all currently-implemented framework resources, the PAT
 | Permission             | Level | Required for |
 |------------------------|-------|--------------|
 | Metadata               | Read  | All endpoints (forced by GitHub) |
-| Administration         | R/W   | Repository settings, rulesets, environments (PUT), dependabot, branch defaults |
+| Administration         | R/W   | Repository settings, rulesets, environments (PUT), branch defaults |
 | Contents               | R/W   | `github_repository_file` (CODEOWNERS), `github_branch` |
 | Actions                | R/W   | `github_actions_repository_permissions`, environment refresh (GET) |
 | Environments           | R/W   | Environment internals beyond the create/refresh path |
@@ -28,7 +28,6 @@ The above is the baseline. Add **Secrets: R/W** and/or **Variables: R/W** only w
 | `github_branch_default` | `PATCH /repos/{owner}/{repo}` (`default_branch`) | Administration: Write |
 | `github_branch` | `POST /repos/{owner}/{repo}/git/refs` | Contents: Write |
 | `github_repository_file` | `PUT /repos/{owner}/{repo}/contents/{path}` | Contents: Write |
-| `github_repository_dependabot_security_updates` | `PUT /repos/{owner}/{repo}/automated-security-fixes` | Administration: Write |
 | `github_actions_repository_permissions` | `PUT /repos/{owner}/{repo}/actions/permissions/*` | Actions: Read+Write |
 | `github_repository_ruleset` | `POST /repos/{owner}/{repo}/rulesets`, `PATCH /repos/{owner}/{repo}/rulesets/{id}` | Administration: Write |
 | `github_repository_environment` (PUT) | `PUT /repos/{owner}/{repo}/environments/{name}` | Administration: Write |

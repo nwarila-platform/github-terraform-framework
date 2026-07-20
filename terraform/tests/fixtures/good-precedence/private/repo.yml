@@ -1,5 +1,5 @@
 good-precedence-repo:
-  description: "Security precedence and Dependabot opt-in fixture."
+  description: "Security precedence and vulnerability-alerts opt-in fixture."
   visibility: private
   vulnerability_alerts: true
   security_and_analysis:
