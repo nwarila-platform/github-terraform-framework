@@ -104,6 +104,18 @@ on:
         required: false
         type: boolean
         default: false
+      drift_issue:
+        description: |
+          When true, a non-empty real-state plan opens (or updates) an issue in
+          the CALLER repository, and an empty plan closes it. Intended for a
+          scheduled run: a nightly plan that nobody reads detects nothing, and an
+          issue is the cheapest thing that reliably reaches an inbox.
+
+          Requires `issues: write` on the calling job. Ignored under plan_only,
+          where the plan is from-scratch and every repo would look like drift.
+        required: false
+        type: boolean
+        default: false
     secrets:
       aws_role_arn:
         description: ARN of the AWS role to assume via OIDC.
@@ -536,6 +548,85 @@ jobs:
               print()
               print("_Values omitted by design (public repo). Run a real-state plan out-of-band for full detail._")
           PY
+
+      - name: Report drift as an issue
+        # Only meaningful against real state. Under plan_only the plan is
+        # from-scratch (ephemeral backend + partial adoption), so every repo
+        # would look like drift and the issue would be permanent noise.
+        if: ${{ inputs.drift_issue && !inputs.plan_only && !inputs.apply }}
+        working-directory: framework/terraform
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Reuse the same allowlisted projection as the job summary: resource
+          # address and action only, never attribute values.
+          python3 - > drift.md <<'PY'
+          import json
+          from collections import Counter
+          with open("plan.json", encoding="utf-8") as fh:
+              plan = json.load(fh)
+          rows, tally = [], Counter()
+          for rc in plan.get("resource_changes", []):
+              act = "-".join(rc.get("change", {}).get("actions", []))
+              if act in ("no-op", "read"):
+                  continue
+              tally[act] += 1
+              rows.append((rc.get("address", "?"), act))
+          if rows:
+              print("The live configuration no longer matches what Terraform declares.")
+              print()
+              print("| count | action |")
+              print("|---|---|")
+              for act, n in sorted(tally.items(), key=lambda kv: -kv[1]):
+                  print(f"| {n} | `{act}` |")
+              print()
+              print("| resource | action |")
+              print("|---|---|")
+              for addr, act in sorted(rows):
+                  print(f"| `{addr}` | `{act}` |")
+              print()
+              print("A `destroy` or `update` here usually means something was changed by hand")
+              print("in the GitHub UI. Re-applying reverts it; if the change was intentional,")
+              print("put it in the repo YAML instead or it will be reverted on the next apply.")
+          PY
+
+          TITLE="Terraform drift detected"
+          EXISTING="$(gh issue list --repo "$REPO" --state open --label terraform-drift \
+                        --json number --jq '.[0].number // empty')"
+
+          if [ ! -s drift.md ]; then
+            # Recovery is a signal too: without it the issue outlives the drift and
+            # the next genuine alert arrives on an already-open thread nobody reads.
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --repo "$REPO" \
+                --body "Resolved — the plan is empty again as of [this run]($RUN_URL)."
+              gh issue close "$EXISTING" --repo "$REPO"
+              echo "drift resolved; closed #$EXISTING"
+            else
+              echo "no drift"
+            fi
+            exit 0
+          fi
+
+          printf '\n\nDetected by [this run](%s).\n' "$RUN_URL" >> drift.md
+
+          if [ -n "$EXISTING" ]; then
+            # Update in place rather than commenting nightly: an issue that grows a
+            # comment every night gets muted, and a muted alert is not an alert.
+            gh issue edit "$EXISTING" --repo "$REPO" --body-file drift.md
+            echo "drift still present; updated #$EXISTING"
+          else
+            gh label create terraform-drift --repo "$REPO" \
+              --description "Live configuration diverged from Terraform" \
+              --color B60205 2>/dev/null || true
+            gh issue create --repo "$REPO" --title "$TITLE" \
+              --label terraform-drift --body-file drift.md
+            echo "drift detected; issue opened"
+          fi
 
       - name: Terraform apply
         if: ${{ inputs.apply && !inputs.plan_only }}
