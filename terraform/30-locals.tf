@@ -104,7 +104,11 @@ locals {
     delete_branch_on_merge      = true
     squash_merge_commit_title   = "PR_TITLE"
     squash_merge_commit_message = "PR_BODY"
-    web_commit_signoff_required = true
+    # Omit at the repo level: web_commit_signoff is ORG-ENFORCED (org_settings), and
+    # GitHub 422s any repo-level write of it once enforced ("cannot be disabled").
+    # null => the attribute is omitted, so the org setting is the single source of
+    # truth. A repo's YAML may still explicitly set it to override.
+    web_commit_signoff_required = null
     auto_init                   = true
     license_template            = null
     archived                    = false
@@ -551,9 +555,18 @@ locals {
         local.repo_setting_defaults.squash_merge_commit_title
       )
 
-      web_commit_signoff_required = coalesce(
-        try(repository.web_commit_signoff_required, null),
-        local.repo_setting_defaults.web_commit_signoff_required
+      # web_commit_signoff is ORG-ENFORCED when org_settings sets it true: GitHub
+      # then 422s ANY repo-level write of the attribute ("cannot be disabled"), so
+      # when the org enforces it the repo value MUST be null (omit) regardless of
+      # YAML. When the org does NOT enforce it, respect the repo level: the repo's
+      # YAML value if set, else the null default (still omit). try (not coalesce)
+      # because the default is null and coalesce rejects an all-null argument list.
+      # try(...) on the org read: local.organization_settings is null in personal
+      # mode (no org enforcement), in which case we respect the repo level.
+      web_commit_signoff_required = (
+        try(local.organization_settings.web_commit_signoff_required, false)
+        ? null
+        : try(repository.web_commit_signoff_required, local.repo_setting_defaults.web_commit_signoff_required)
       )
 
       #endregion --- [ Merge Behavior ] ------------------------------------------------------ #

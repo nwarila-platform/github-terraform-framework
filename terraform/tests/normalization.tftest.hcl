@@ -440,8 +440,8 @@ run "good_minimal_carries_expected_defaults" {
 
   # Commit signoff
   assert {
-    condition     = output.all_repositories["example-public-repo"].web_commit_signoff_required == true
-    error_message = "web_commit_signoff_required default must be true"
+    condition     = output.all_repositories["example-public-repo"].web_commit_signoff_required == null
+    error_message = "web_commit_signoff_required must default to null (omit) at the repo level — org enforcement is the source of truth"
   }
 
   # Init / licensing
