@@ -24,5 +24,6 @@ make docs       # regenerate docs/reference/terraform.md
 make ci
 ```
 
-If `make ci` is green locally, it is aligned with the Terraform test workflow
-in CI.
+Local `make ci` is broader than the Terraform test workflow in CI: the hosted
+workflow runs `fmt-check`, `init`, `validate`, and `test`, but not the other six
+gates, including `docs-diff`.

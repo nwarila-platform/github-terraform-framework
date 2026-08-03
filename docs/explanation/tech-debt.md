@@ -156,3 +156,25 @@ available, so the hole reopens for any repository that sets it `true`.
 
 **What would close it:** a validation rule rejecting `verified_allowed: true`
 outright, if the ergonomic cost is acceptable.
+
+---
+
+## TD-7 — Generated Terraform reference drift is not gated here
+
+**Status:** accepted for now; tracked for a dedicated follow-up.
+
+This repository's CI runs neither `make ci` nor `make docs-diff`. Changes to
+Terraform can therefore leave the generated reference stale while framework CI
+remains green. The drift becomes visible only when a consumer runs the full
+`make ci`, where `docs-diff` fails.
+
+The gap is accepted temporarily because changing framework PR gating has its own
+blast radius and is being handled separately from repairing the current drift.
+Consumers still detect the mismatch, but only after it has escaped this
+repository's checks.
+
+**What would close it:** add a docs-only framework PR gate that installs
+checksum-verified `terraform-docs` 0.23.0 and runs `make docs-diff`.
+
+**How it would be noticed:** a downstream consumer's `make ci` fails at
+`docs-diff`, or a maintainer runs `make docs-diff` locally.
