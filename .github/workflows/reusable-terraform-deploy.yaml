@@ -120,6 +120,13 @@ on:
       aws_role_arn:
         description: ARN of the AWS role to assume via OIDC.
         required: true
+      aws_plan_role_arn:
+        description: >-
+          Optional ARN of a READ-ONLY role used only under plan_only, to seed the
+          ephemeral local state from the canonical S3 object. Needs nothing beyond
+          s3:GetObject on the state key. Falls back to aws_role_arn when unset --
+          set it so pull-request runs never hold a state-writing credential.
+        required: false
       aws_region:
         description: AWS region for the S3 backend and any data plane calls.
         required: true
@@ -162,11 +169,20 @@ jobs:
       # surface stays unchanged.
       TF_VAR_github_token: ${{ secrets.gh_token }}
     steps:
+      # plan_only now assumes a credential too, so the dry-run plan can be seeded
+      # from the CANONICAL state instead of a reconstruction. It prefers the
+      # read-only aws_plan_role_arn; the S3 backend is still never configured under
+      # plan_only, so there remains no write path to the canonical tfstate.
+      # continue-on-error keeps fork pull requests -- which receive no secrets --
+      # working on the degraded, clearly-labelled path below rather than hard-failing.
       - name: Initialize temporary AWS credentials (OIDC)
-        if: ${{ !inputs.plan_only }}
+        id: aws_creds
+        continue-on-error: ${{ inputs.plan_only }}
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
-          role-to-assume: ${{ secrets.aws_role_arn }}
+          role-to-assume: >-
+            ${{ (inputs.plan_only && secrets.aws_plan_role_arn)
+                || secrets.aws_role_arn }}
           aws-region: ${{ secrets.aws_region }}
           mask-aws-account-id: true
 
@@ -261,17 +277,49 @@ jobs:
       - name: Terraform init (plan_only local state)
         if: ${{ inputs.plan_only }}
         working-directory: framework/terraform
+        env:
+          BACKEND_BUCKET: ${{ secrets.backend_bucket }}
+          AWS_REGION: ${{ secrets.aws_region }}
+          CREDS_OUTCOME: ${{ steps.aws_creds.outcome }}
         run: |
           set -euo pipefail
           # plan_only: replace the S3 backend with a local one so the ungated import-adoption
-          # steps can write to EPHEMERAL local state. The canonical S3 tfstate is never
-          # configured or reached here; OIDC/AWS creds are also skipped under plan_only (two
-          # independent guards). The whole framework/ workspace is deleted in Cleanup.
+          # steps write to EPHEMERAL local state. The canonical S3 tfstate is never
+          # CONFIGURED as a backend here, so there is no write path to it; the whole
+          # framework/ workspace is deleted in Cleanup.
+          #
+          # The local state is SEEDED from a read-only copy of the canonical object. Without
+          # this, plan_only planned against an empty state and relied entirely on the
+          # adoption steps below to reconstruct reality -- but adoption covers only
+          # github_repository, github_repository_ruleset and github_organization_settings,
+          # so every other declared resource type rendered as a phantom "create". That made
+          # the plan gate structurally blind to changes in CODEOWNERS content, default
+          # branch, environments and Actions permissions. Seeding from real state fixes all
+          # of them at once; adoption still runs afterwards and now only layers on genuinely
+          # unmanaged resources.
           cat > 00-providers.tf <<'EOF'
           terraform {
             backend "local" {}
           }
           EOF
+
+          owner_lc="$(printf '%s' "${TF_VAR_github_owner}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          state_key="${owner_lc}/${repo_name}/terraform.tfstate"
+
+          if [ "${CREDS_OUTCOME}" = "success" ] \
+            && aws s3 cp "s3://${BACKEND_BUCKET}/${state_key}" terraform.tfstate \
+                 --region "${AWS_REGION}" >/dev/null 2>&1; then
+            printf 'plan_only: seeded local state from s3://%s/%s\n' \
+              "${BACKEND_BUCKET}" "${state_key}"
+          else
+            # Fork pull requests receive no secrets, and a first-ever run has no state
+            # object. Both are legitimate; neither may masquerade as an accurate plan.
+            printf '::warning title=Plan is not seeded from real state::%s\n' \
+              "Could not read the canonical tfstate (no credentials, or no state object). The plan below is reconstructed from API adoption only and WILL show phantom creates for resource types adoption does not cover. Do not read it as a faithful diff."
+            rm -f terraform.tfstate
+          fi
+
           terraform init
 
       - name: Terraform init (S3 backend)
