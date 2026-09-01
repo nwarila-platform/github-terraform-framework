@@ -12,11 +12,13 @@ name: Reusable Terraform Deploy
 # 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
-# 3. Imports any already-existing repository and repository-ruleset resources
-#    into state before planning. This lets the framework adopt a pre-existing
-#    fleet without trying to create resources that already exist.
+# 3. On real-state runs only, imports any already-existing repository and
+#    repository-ruleset resources into state before planning. This lets the
+#    framework adopt a pre-existing fleet without trying to create resources that
+#    already exist. Skipped under `plan_only`, where nothing may write state.
 # 4. Runs terraform init/plan against the assembled tree; apply only runs when
-#    the caller explicitly sets `apply: true`.
+#    the caller explicitly sets `apply: true`. Both plan_only and real-state runs
+#    read the canonical S3 state, so a pull-request plan is a faithful diff.
 #
 # S3 layout convention
 # --------------------
@@ -90,9 +92,12 @@ on:
         default: ""
       plan_only:
         description: |
-          When true, run init/import/validate/plan against an ISOLATED ephemeral
-          state (terraform init -backend=false) and STOP before apply. The canonical
-          S3 tfstate is never read or written. Used by pull-request dry-runs.
+          When true, run validate/plan READ-ONLY against the canonical S3 state and
+          STOP before apply. Used by pull-request dry-runs.
+
+          The state is READ but never written: `terraform plan` does not write state,
+          the state-mutating adoption steps are skipped, and the plan runs with
+          -lock=false so it neither takes the lock nor blocks a concurrent apply.
         required: false
         type: boolean
         default: false
@@ -120,6 +125,15 @@ on:
       aws_role_arn:
         description: ARN of the AWS role to assume via OIDC.
         required: true
+      aws_plan_role_arn:
+        description: >-
+          Optional ARN of a READ-ONLY role used only under plan_only. Needs s3:GetObject
+          on the state key, plus s3:GetObject and s3:ListBucket on the private-repo
+          definitions prefix -- and nothing else. Falls back to aws_role_arn when unset;
+          set it so pull-request runs never hold a state-writing credential, which denies
+          a plan run any write at the IAM layer even if a future step forgets the
+          read-only invariant.
+        required: false
       aws_region:
         description: AWS region for the S3 backend and any data plane calls.
         required: true
@@ -162,11 +176,22 @@ jobs:
       # surface stays unchanged.
       TF_VAR_github_token: ${{ secrets.gh_token }}
     steps:
+      # plan_only assumes a credential too, so the dry-run plan reads the CANONICAL
+      # state instead of reconstructing one. It prefers the read-only
+      # aws_plan_role_arn, so a pull-request run need not hold a state-writing
+      # credential at all.
+      #
+      # Fork pull requests receive no secrets and cannot assume any role, so this
+      # step fails for them. That failure is NOT swallowed: a plan that cannot read
+      # real state would be an unfaithful diff, and presenting one as authoritative
+      # is the defect this whole path exists to remove.
       - name: Initialize temporary AWS credentials (OIDC)
-        if: ${{ !inputs.plan_only }}
+        id: aws_creds
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
-          role-to-assume: ${{ secrets.aws_role_arn }}
+          role-to-assume: >-
+            ${{ (inputs.plan_only && secrets.aws_plan_role_arn)
+                || secrets.aws_role_arn }}
           aws-region: ${{ secrets.aws_region }}
           mask-aws-account-id: true
 
@@ -187,11 +212,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch private repo definitions from S3
-        # plan_only has no AWS credentials (OIDC is skipped); the runner's committed
-        # terraform/private/ is still overlaid below, so the dry-run plan stays faithful
-        # for committed private repos. S3-only private definitions are intentionally
-        # skipped on plan_only dry-runs.
-        if: ${{ !inputs.plan_only }}
+        # MUST run under plan_only too, now that plan_only reads canonical state.
+        # Those S3-only private repos are present in that state; if their definitions
+        # were absent from the assembled config, Terraform would see managed resources
+        # with no configuration and plan to DESTROY them. Skipping this step was safe
+        # only while plan_only started from an empty state.
+        #
+        # This is why aws_plan_role_arn needs s3:ListBucket plus s3:GetObject on the
+        # private-definitions prefix as well as the state key.
         env:
           PRIVATE_PREFIX_OVERRIDE: ${{ inputs.private_repos_prefix }}
           BUCKET: ${{ secrets.backend_bucket }}
@@ -258,24 +286,7 @@ jobs:
           terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
 
-      - name: Terraform init (plan_only local state)
-        if: ${{ inputs.plan_only }}
-        working-directory: framework/terraform
-        run: |
-          set -euo pipefail
-          # plan_only: replace the S3 backend with a local one so the ungated import-adoption
-          # steps can write to EPHEMERAL local state. The canonical S3 tfstate is never
-          # configured or reached here; OIDC/AWS creds are also skipped under plan_only (two
-          # independent guards). The whole framework/ workspace is deleted in Cleanup.
-          cat > 00-providers.tf <<'EOF'
-          terraform {
-            backend "local" {}
-          }
-          EOF
-          terraform init
-
       - name: Terraform init (S3 backend)
-        if: ${{ !inputs.plan_only }}
         working-directory: framework/terraform
         env:
           BACKEND_BUCKET: ${{ secrets.backend_bucket }}
@@ -293,14 +304,26 @@ jobs:
             -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
-      # plan_only SAFETY INVARIANT: the two "Adopt ... into state" steps below run
-      # `terraform import`, which writes to whatever backend the preceding init configured.
-      # They are intentionally UNGATED so the dry-run plan faithfully reflects reconciliation
-      # (not misleading creates). This is safe under plan_only ONLY because the
-      # `terraform init (plan_only local state)` initialized an ephemeral local backend,
-      # and the S3-backend init was skipped. DO NOT allow the S3-backend init to run
-      # under plan_only, or these imports would write to the canonical S3 tfstate.
+      # plan_only READ-ONLY INVARIANT. Every run now initializes the canonical S3 backend,
+      # so the plan is a faithful diff against real state rather than a reconstruction.
+      # `terraform plan` never writes state; the only steps that do are the three
+      # "Adopt ... into state" steps (`terraform import`) and `terraform apply`. Adoption is
+      # therefore gated OFF under plan_only, and plan runs with -lock=false so they neither
+      # take the state lock nor block a concurrent apply.
+      #
+      # Defence in depth: set the aws_plan_role_arn secret to a role holding only
+      # s3:GetObject on the state key, so a plan run is denied any write at the IAM layer
+      # even if a future step forgets this invariant.
+      #
+      # WHY THIS REPLACED THE OLD LOCAL-STATE PATH: plan_only used to init an empty local
+      # backend and rely entirely on adoption to reconstruct reality. Adoption covers only
+      # github_repository, github_repository_ruleset and github_organization_settings, but
+      # the configuration declares thirteen resource types -- so every other type rendered
+      # as a phantom "create" (89 creates for a 12-resource change on runner #63). That made
+      # the plan gate structurally blind to changes in CODEOWNERS content, default branch,
+      # environments and Actions permissions.
       - name: Adopt existing repositories into state
+        if: ${{ !inputs.plan_only }}
         working-directory: framework/terraform
         env:
           GITHUB_API_VERSION: "2022-11-28"
@@ -376,6 +399,7 @@ jobs:
           done < /tmp/github-repository-names.txt
 
       - name: Adopt existing repository rulesets into state
+        if: ${{ !inputs.plan_only }}
         working-directory: framework/terraform
         env:
           GITHUB_API_VERSION: "2022-11-28"
@@ -486,7 +510,7 @@ jobs:
           PY
 
       - name: Adopt existing organization settings into state
-        if: ${{ inputs.github_is_organization }}
+        if: ${{ inputs.github_is_organization && !inputs.plan_only }}
         working-directory: framework/terraform
         run: |
           set -euo pipefail
@@ -507,12 +531,22 @@ jobs:
 
       - name: Terraform plan
         working-directory: framework/terraform
+        env:
+          PLAN_ONLY: ${{ inputs.plan_only }}
         run: |
           set -euo pipefail
           # Suppress the human-readable plan RENDER from the (public) Actions log
           # — it can disclose private repo names + nonsensitive attribute values.
           # Errors go to stderr and remain visible; the binary plan is in tfplan.
-          terraform plan -input=false -lock-timeout=10m -out=tfplan > /dev/null
+          # plan_only reads canonical state but must never take its lock: a PR plan
+          # has no business blocking an apply, and a read-only plan role cannot write
+          # a lock anyway. Real-state runs keep locking (they may be followed by apply).
+          if [ "${PLAN_ONLY}" = "true" ]; then
+            lock_args=(-lock=false)
+          else
+            lock_args=(-lock-timeout=10m)
+          fi
+          terraform plan -input=false "${lock_args[@]}" -out=tfplan > /dev/null
           # Plan JSON stays LOCAL to the ephemeral runner (never uploaded, never
           # echoed to a public surface); the sanitized summary is derived from it.
           # (sensitive TF_VARs already render as "(sensitive value)".)
