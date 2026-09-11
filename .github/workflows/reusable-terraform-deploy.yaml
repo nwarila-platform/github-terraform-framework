@@ -12,13 +12,15 @@ name: Reusable Terraform Deploy
 # 2. Overlays the runner's `terraform/public/` and `terraform/private/` (now
 #    containing both committed files and any S3-fetched files) onto the
 #    framework's `terraform/repos/{public,private}/` tree.
-# 3. On real-state runs only, imports any already-existing repository and
-#    repository-ruleset resources into state before planning. This lets the
+# 3. On canonical-state writer runs only, imports any already-existing repository
+#    and repository-ruleset resources into state before planning. This lets the
 #    framework adopt a pre-existing fleet without trying to create resources that
-#    already exist. Skipped under `plan_only`, where nothing may write state.
-# 4. Runs terraform init/plan against the assembled tree; apply only runs when
-#    the caller explicitly sets `apply: true`. Both plan_only and real-state runs
-#    read the canonical S3 state, so a pull-request plan is a faithful diff.
+#    already exist. Skipped under `plan_only` and detector mode, where nothing may
+#    write state.
+# 4. Runs terraform init/plan against the assembled tree. Ordinary and plan_only
+#    runs use the canonical S3 backend; detector mode reads a copied, ETag-stripped
+#    snapshot through a local backend. Apply only runs when explicitly requested
+#    without plan_only or drift_issue.
 #
 # S3 layout convention
 # --------------------
@@ -105,19 +107,20 @@ on:
         description: |
           When true, apply the real-state Terraform plan. Leave false to produce
           and upload a real-state plan without changing managed resources.
-          Ignored when plan_only is true.
+          Ignored when plan_only or drift_issue is true.
         required: false
         type: boolean
         default: false
       drift_issue:
         description: |
-          When true, a non-empty real-state plan opens (or updates) an issue in
-          the CALLER repository, and an empty plan closes it. Intended for a
-          scheduled run: a nightly plan that nobody reads detects nothing, and an
-          issue is the cheapest thing that reliably reaches an inbox.
+          When true while plan_only and apply are false, detector mode copies the
+          canonical state, strips stored ETags, and reads it through a local
+          backend. Imports and the destroy guard are disabled in this mode. A
+          non-empty plan opens (or updates) an issue in the CALLER repository,
+          and an empty plan closes it. drift_issue always suppresses apply.
 
-          Requires `issues: write` on the calling job. Ignored under plan_only,
-          where the plan is from-scratch and every repo would look like drift.
+          Requires `issues: write` on the calling job. Ignored under plan_only;
+          plan_only remains a canonical-state-backed read-only plan.
         required: false
         type: boolean
         default: false
@@ -127,12 +130,11 @@ on:
         required: true
       aws_plan_role_arn:
         description: >-
-          Optional ARN of a READ-ONLY role used only under plan_only. Needs s3:GetObject
-          on the state key, plus s3:GetObject and s3:ListBucket on the private-repo
-          definitions prefix -- and nothing else. Falls back to aws_role_arn when unset;
-          set it so pull-request runs never hold a state-writing credential, which denies
-          a plan run any write at the IAM layer even if a future step forgets the
-          read-only invariant.
+          ARN of a READ-ONLY role, conditionally mandatory under plan_only and detector
+          mode with no fallback to aws_role_arn in either mode. Needs s3:GetObject on the
+          exact state key, plus prefix-scoped s3:ListBucket and s3:GetObject on the exact
+          private-repo definitions prefix, and kms:Decrypt only when the object uses a
+          customer-managed key. Must grant no S3 write action.
         required: false
       aws_region:
         description: AWS region for the S3 backend and any data plane calls.
@@ -176,22 +178,31 @@ jobs:
       # surface stays unchanged.
       TF_VAR_github_token: ${{ secrets.gh_token }}
     steps:
-      # plan_only assumes a credential too, so the dry-run plan reads the CANONICAL
-      # state instead of reconstructing one. It prefers the read-only
-      # aws_plan_role_arn, so a pull-request run need not hold a state-writing
-      # credential at all.
+      # plan_only reads canonical state, while detector mode copies canonical state
+      # and strips ETags before reading it locally. Both modes require the read-only
+      # aws_plan_role_arn and never fall back to the writer role.
       #
       # Fork pull requests receive no secrets and cannot assume any role, so this
       # step fails for them. That failure is NOT swallowed: a plan that cannot read
       # real state would be an unfaithful diff, and presenting one as authoritative
       # is the defect this whole path exists to remove.
+      - name: Require read-only AWS role
+        if: ${{ inputs.plan_only || (inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
+        env:
+          AWS_PLAN_ROLE_ARN: ${{ secrets.aws_plan_role_arn }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_PLAN_ROLE_ARN}" ]; then
+            echo "::error::aws_plan_role_arn is required for plan-only and detector modes"
+            exit 1
+          fi
+
       - name: Initialize temporary AWS credentials (OIDC)
         id: aws_creds
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
           role-to-assume: >-
-            ${{ (inputs.plan_only && secrets.aws_plan_role_arn)
-                || secrets.aws_role_arn }}
+            ${{ (inputs.plan_only || (inputs.drift_issue && !inputs.plan_only && !inputs.apply)) && secrets.aws_plan_role_arn || secrets.aws_role_arn }}
           aws-region: ${{ secrets.aws_region }}
           mask-aws-account-id: true
 
@@ -287,6 +298,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform init (S3 backend)
+        if: ${{ !(inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
         working-directory: framework/terraform
         env:
           BACKEND_BUCKET: ${{ secrets.backend_bucket }}
@@ -304,16 +316,49 @@ jobs:
             -backend-config="key=${owner_lc}/${repo_name}/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
-      # plan_only READ-ONLY INVARIANT. Every run now initializes the canonical S3 backend,
-      # so the plan is a faithful diff against real state rather than a reconstruction.
+      - name: Terraform init (ETag-stripped local backend)
+        if: ${{ inputs.drift_issue && !inputs.plan_only && !inputs.apply }}
+        working-directory: framework/terraform
+        env:
+          BACKEND_BUCKET: ${{ secrets.backend_bucket }}
+        run: |
+          set -euo pipefail
+          # Match the canonical state-key convention used by the S3 init branch.
+          owner_lc="$(printf '%s' "${TF_VAR_github_owner}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          aws s3 cp \
+            "s3://${BACKEND_BUCKET}/${owner_lc}/${repo_name}/terraform.tfstate" \
+            canonical.tfstate \
+            --only-show-errors
+          jq '.resources[].instances[].attributes |= del(.etag)' \
+            canonical.tfstate > stripped.tfstate
+          if ! jq -e \
+            'all(.resources[].instances[].attributes; type == "object" and (has("etag") | not))' \
+            stripped.tfstate > /dev/null; then
+            echo "::error::ETag-stripped state is invalid or still contains an etag"
+            exit 1
+          fi
+          rm -f canonical.tfstate
+          cat > backend_override.tf <<'EOF'
+          terraform {
+            backend "local" {
+              path = "stripped.tfstate"
+            }
+          }
+          EOF
+          terraform init
+
+      # READ-ONLY INVARIANT. plan_only reads the canonical S3 backend; detector mode
+      # reads a copied, ETag-stripped snapshot through the local backend. Both are
+      # faithful to canonical bindings and neither writes canonical state.
       # `terraform plan` never writes state; the only steps that do are the three
       # "Adopt ... into state" steps (`terraform import`) and `terraform apply`. Adoption is
-      # therefore gated OFF under plan_only, and plan runs with -lock=false so they neither
-      # take the state lock nor block a concurrent apply.
+      # gated OFF under plan_only and detector mode. plan_only runs with -lock=false so
+      # it neither takes the canonical state lock nor blocks a concurrent apply.
       #
-      # Defence in depth: set the aws_plan_role_arn secret to a role holding only
-      # s3:GetObject on the state key, so a plan run is denied any write at the IAM layer
-      # even if a future step forgets this invariant.
+      # Defence in depth: both read-only modes require aws_plan_role_arn with no writer
+      # fallback, so IAM denies canonical-state writes even if a future step forgets
+      # this invariant.
       #
       # WHY THIS REPLACED THE OLD LOCAL-STATE PATH: plan_only used to init an empty local
       # backend and rely entirely on adoption to reconstruct reality. Adoption covers only
@@ -323,7 +368,7 @@ jobs:
       # the plan gate structurally blind to changes in CODEOWNERS content, default branch,
       # environments and Actions permissions.
       - name: Adopt existing repositories into state
-        if: ${{ !inputs.plan_only }}
+        if: ${{ !inputs.plan_only && !(inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
         working-directory: framework/terraform
         env:
           GITHUB_API_VERSION: "2022-11-28"
@@ -399,7 +444,7 @@ jobs:
           done < /tmp/github-repository-names.txt
 
       - name: Adopt existing repository rulesets into state
-        if: ${{ !inputs.plan_only }}
+        if: ${{ !inputs.plan_only && !(inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
         working-directory: framework/terraform
         env:
           GITHUB_API_VERSION: "2022-11-28"
@@ -510,7 +555,7 @@ jobs:
           PY
 
       - name: Adopt existing organization settings into state
-        if: ${{ inputs.github_is_organization && !inputs.plan_only }}
+        if: ${{ inputs.github_is_organization && !inputs.plan_only && !(inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
         working-directory: framework/terraform
         run: |
           set -euo pipefail
@@ -553,6 +598,7 @@ jobs:
           terraform show -json tfplan > plan.json
 
       - name: Guard repository destroys
+        if: ${{ !(inputs.drift_issue && !inputs.plan_only && !inputs.apply) }}
         working-directory: framework/terraform
         run: |
           set -euo pipefail
@@ -695,9 +741,9 @@ jobs:
           PY
 
       - name: Report drift as an issue
-        # Only meaningful against real state. Under plan_only the plan is
-        # from-scratch (ephemeral backend + partial adoption), so every repo
-        # would look like drift and the issue would be permanent noise.
+        # Detector mode reads a copied, ETag-stripped canonical snapshot through
+        # a local backend. Issue lifecycle is keyed only to actionable
+        # resource_changes; refresh-only resource_drift entries are not reports.
         if: ${{ inputs.drift_issue && !inputs.plan_only && !inputs.apply }}
         working-directory: framework/terraform
         env:
@@ -715,31 +761,44 @@ jobs:
           with open("plan.json", encoding="utf-8") as fh:
               plan = json.load(fh)
           rows, tally = [], Counter()
+          classes = Counter()
           for rc in plan.get("resource_changes", []):
-              act = "-".join(rc.get("change", {}).get("actions", []))
+              actions = rc.get("change", {}).get("actions", [])
+              act = "-".join(actions)
               if act in ("no-op", "read"):
                   continue
+              classification = (
+                  "INDETERMINATE / state-binding-missing"
+                  if actions == ["create"]
+                  else "DRIFT / live-mismatch"
+              )
               tally[act] += 1
-              rows.append((rc.get("address", "?"), act))
+              classes[classification] += 1
+              rows.append((rc.get("address", "?"), classification, act))
           if rows:
-              print("The live configuration no longer matches what Terraform declares.")
+              if classes["DRIFT / live-mismatch"]:
+                  print("DRIFT / live-mismatch: the live configuration no longer matches what Terraform declares.")
+              if classes["INDETERMINATE / state-binding-missing"]:
+                  print("INDETERMINATE / state-binding-missing: Terraform has a desired resource with no canonical state binding; its live status is unproven.")
               print()
               print("| count | action |")
               print("|---|---|")
               for act, n in sorted(tally.items(), key=lambda kv: -kv[1]):
                   print(f"| {n} | `{act}` |")
               print()
-              print("| resource | action |")
-              print("|---|---|")
-              for addr, act in sorted(rows):
-                  print(f"| `{addr}` | `{act}` |")
+              print("| resource | class | action |")
+              print("|---|---|---|")
+              for addr, classification, act in sorted(rows):
+                  print(f"| `{addr}` | {classification} | `{act}` |")
               print()
-              print("A `destroy` or `update` here usually means something was changed by hand")
-              print("in the GitHub UI. Re-applying reverts it; if the change was intentional,")
-              print("put it in the repo YAML instead or it will be reverted on the next apply.")
+              if classes["DRIFT / live-mismatch"]:
+                  print("A `delete`, `update`, or replacement here means live GitHub no longer")
+                  print("matches the declared configuration. Re-applying restores the declaration.")
+              if classes["INDETERMINATE / state-binding-missing"]:
+                  print("A `create` here is a state-binding gap, not proof that the live object is absent.")
           PY
 
-          TITLE="Terraform drift detected"
+          TITLE="Terraform drift or state-binding gap detected"
           EXISTING="$(gh issue list --repo "$REPO" --state open --label terraform-drift \
                         --json number --jq '.[0].number // empty')"
 
@@ -759,26 +818,24 @@ jobs:
 
           printf '\n\nDetected by [this run](%s).\n' "$RUN_URL" >> drift.md
 
+          # Keep the canonical label truthful even when an existing issue is edited.
+          gh label create terraform-drift --repo "$REPO" \
+            --description "Non-empty Terraform plan or missing state binding" \
+            --color B60205 --force
+
           if [ -n "$EXISTING" ]; then
             # Update in place rather than commenting nightly: an issue that grows a
             # comment every night gets muted, and a muted alert is not an alert.
-            gh issue edit "$EXISTING" --repo "$REPO" --body-file drift.md
+            gh issue edit "$EXISTING" --repo "$REPO" --title "$TITLE" --body-file drift.md
             echo "drift still present; updated #$EXISTING"
           else
-            # --force makes this idempotent. Errors are NOT suppressed: the
-            # first run of this step failed because a permission denial here was
-            # sent to /dev/null, so the only symptom was `gh issue create`
-            # reporting a missing label -- which points at the wrong problem.
-            gh label create terraform-drift --repo "$REPO" \
-              --description "Live configuration diverged from Terraform" \
-              --color B60205 --force
             gh issue create --repo "$REPO" --title "$TITLE" \
               --label terraform-drift --body-file drift.md
             echo "drift detected; issue opened"
           fi
 
       - name: Terraform apply
-        if: ${{ inputs.apply && !inputs.plan_only }}
+        if: ${{ inputs.apply && !inputs.plan_only && !inputs.drift_issue }}
         working-directory: framework/terraform
         run: terraform apply -auto-approve tfplan
 
