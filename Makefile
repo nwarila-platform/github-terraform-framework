@@ -17,6 +17,7 @@ validate:
 
 test:
 	terraform -chdir=terraform test
+	$(PYTHON) tools/test_detector_mode.py
 
 # Mutating: regenerates the injected block in docs/reference/terraform.md.
 docs:
