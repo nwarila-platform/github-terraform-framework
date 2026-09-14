@@ -39,6 +39,7 @@
 !/terraform/repos/
 !/terraform/repos/public/
 !/terraform/repos/public/.gitkeep
+!/terraform/repos/public/talos-cluster.yml
 !/terraform/repos/private/
 !/terraform/repos/private/.gitkeep
 
