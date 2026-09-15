@@ -62,6 +62,10 @@ jobs:
         working-directory: .
         run: python3 tools/test_detector_mode.py
 
+      - name: Provider Gap Tests
+        working-directory: .
+        run: python3 tools/test_verify_provider_gaps.py
+
       - name: Parse Test Results
         id: parse
         if: always()

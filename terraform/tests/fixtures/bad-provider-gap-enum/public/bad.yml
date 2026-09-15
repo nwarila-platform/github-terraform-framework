@@ -1,0 +1,5 @@
+bad-provider-gap-enum:
+  description: Invalid provider-gap enum fixture.
+  visibility: public
+  provider_gaps:
+    fork_pr_contributor_approval: everybody

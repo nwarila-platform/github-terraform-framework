@@ -113,6 +113,21 @@ variable "org_billing_email" {
   nullable    = true # null = unmanaged
 }
 
+variable "provider_gaps" {
+  description = "Provider-gap desired values verified by the scheduled GET verifier; consumed by no resource."
+  type = object({
+    fork_pr_contributor_approval = optional(string)
+    code_security_configuration = optional(object({
+      id          = number
+      enforcement = string
+      defaults    = list(string)
+      status      = string
+    }))
+  })
+  default  = null
+  nullable = true
+}
+
 #endregion --- [ Organization Settings ] ----------------------------------------------------- #
 
 #region ------ [ CODEOWNERS ] ---------------------------------------------------------------- #

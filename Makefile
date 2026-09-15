@@ -19,6 +19,9 @@ test:
 	terraform -chdir=terraform test
 	$(PYTHON) tools/test_detector_mode.py
 
+provider-gap-test:
+	$(PYTHON) tools/test_verify_provider_gaps.py
+
 # Mutating: regenerates the injected block in docs/reference/terraform.md.
 docs:
 	terraform-docs --config .terraform-docs.yml terraform
@@ -51,6 +54,7 @@ ci:
 	$(MAKE) init
 	$(MAKE) validate
 	$(MAKE) test
+	$(MAKE) provider-gap-test
 	$(MAKE) tflint
 	$(MAKE) docs-diff
 	$(MAKE) docs-check

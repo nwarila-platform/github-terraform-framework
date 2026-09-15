@@ -57,7 +57,7 @@ locals {
     "archived", "archive_on_destroy",
     "vulnerability_alerts",
     "pages", "security_and_analysis", "unmanaged_security_features", "template",
-    "branches", "rules", "actions", "environments",
+    "branches", "rules", "actions", "environments", "provider_gaps",
     "codeowners", "required_checks",
   ])
 
@@ -70,6 +70,7 @@ locals {
   allowed_security_and_analysis_keys  = toset(["advanced_security", "code_security", "secret_scanning", "secret_scanning_push_protection", "secret_scanning_ai_detection", "secret_scanning_non_provider_patterns"])
   allowed_actions_keys                = toset(["enabled", "allowed_actions", "allowed_actions_config"])
   allowed_actions_config_keys         = toset(["github_owned_allowed", "verified_allowed", "patterns_allowed"])
+  allowed_provider_gaps_keys          = toset(["fork_pr_contributor_approval"])
   allowed_environment_keys            = toset(["wait_timer", "can_admins_bypass", "prevent_self_review", "reviewers", "deployment_branch_policy", "branch_policies", "variables", "secrets"])
   allowed_environment_reviewers_keys  = toset(["users", "teams"])
   allowed_environment_dbp_keys        = toset(["protected_branches", "custom_branch_policies"])
@@ -182,6 +183,13 @@ locals {
         for k in setsubtract(keys(repo.actions.allowed_actions_config), local.allowed_actions_config_keys) :
         "Repository '${name}' actions.allowed_actions_config: unknown key '${k}'. Allowed: ${jsonencode(tolist(local.allowed_actions_config_keys))}."
       ],
+      # provider_gaps (declaration-only; consumed by no Terraform resource)
+      try(repo.provider_gaps, null) == null ? [] : (
+        can(keys(repo.provider_gaps)) ? [
+          for k in setsubtract(keys(repo.provider_gaps), local.allowed_provider_gaps_keys) :
+          "Repository '${name}' provider_gaps: unknown key '${k}'. Allowed: ${jsonencode(tolist(local.allowed_provider_gaps_keys))}."
+        ] : ["Repository '${name}' provider_gaps must be an object."]
+      ),
       # environments
       flatten([
         for env_name, env in try(repo.environments, {}) : [
@@ -393,6 +401,26 @@ locals {
     if coalesce(try(repo.visibility, null), "private") == "public" ? try(repo.allow_forking, null) == false : false
   ]
 
+  organization_provider_gap_errors = concat(
+    var.provider_gaps != null && try(var.provider_gaps.fork_pr_contributor_approval, null) != null && !contains([
+      "first_time_contributors_new_to_github",
+      "first_time_contributors",
+      "all_external_contributors",
+    ], var.provider_gaps.fork_pr_contributor_approval) ? ["provider_gaps.fork_pr_contributor_approval must be one of: first_time_contributors_new_to_github, first_time_contributors, all_external_contributors."] : [],
+    !var.github_is_organization && var.provider_gaps != null && try(var.provider_gaps.fork_pr_contributor_approval, null) != null ? ["provider_gaps.fork_pr_contributor_approval requires an organization owner; personal accounts must declare it per repository."] : [],
+  )
+
+  repository_provider_gap_errors = flatten([
+    for name, repo in local.repos_from_yaml : concat(
+      try(repo.provider_gaps.fork_pr_contributor_approval, null) != null && !try(contains([
+        "first_time_contributors_new_to_github",
+        "first_time_contributors",
+        "all_external_contributors",
+      ], repo.provider_gaps.fork_pr_contributor_approval), false) ? ["Repository '${name}' provider_gaps.fork_pr_contributor_approval must be one of: first_time_contributors_new_to_github, first_time_contributors, all_external_contributors."] : [],
+      coalesce(try(repo.visibility, null), "private") == "private" && try(repo.provider_gaps.fork_pr_contributor_approval, null) != null ? ["Repository '${name}' is private and must not declare provider_gaps.fork_pr_contributor_approval."] : [],
+    )
+  ])
+
   global_validation_errors = concat(
     local.duplicate_key_error,
     local.unknown_top_level_key_errors,
@@ -406,6 +434,8 @@ locals {
     local.org_settings_owner_errors,
     local.org_settings_name_errors,
     local.public_forking_errors,
+    local.organization_provider_gap_errors,
+    local.repository_provider_gap_errors,
   )
 }
 
@@ -596,6 +626,17 @@ locals {
         try(repository.archived, null),
         local.repo_setting_defaults.archived
       )
+
+      #region ------ [ Provider Gaps ] ------------------------------------------------------- #
+
+      # A null member has the same declaration semantics as an absent or empty
+      # block.  Non-null values are projected for the GET-only verifier and are
+      # deliberately consumed by no Terraform resource.
+      provider_gaps = try(repository.provider_gaps.fork_pr_contributor_approval, null) == null ? null : {
+        fork_pr_contributor_approval = repository.provider_gaps.fork_pr_contributor_approval
+      }
+
+      #endregion --- [ Provider Gaps ] ------------------------------------------------------- #
 
       archive_on_destroy = coalesce(
         try(repository.archive_on_destroy, null),

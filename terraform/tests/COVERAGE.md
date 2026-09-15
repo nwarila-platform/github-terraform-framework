@@ -73,8 +73,13 @@ terraform test
 | G37 | Compat baseline + gap + populated preview | ✅ | `validation.tftest.hcl::compatibility_mode_tolerates_capability_gap` |
 | G38 | Compat baseline + no gap + empty preview | ✅ | `security.tftest.hcl::compatibility_mode_no_gap_plans_clean_with_empty_preview` |
 | G39 | Capability gap across multiple visibilities (counting) | ✅ | `security.tftest.hcl::strict_mode_reports_gaps_across_multiple_visibilities` |
+| G40 | Unknown nested `provider_gaps.*` key | ✅ | `provider_gaps.tftest.hcl::rejects_unknown_provider_gap_key` |
+| G41 | Repository provider-gap enum | ✅ | `provider_gaps.tftest.hcl::rejects_repository_policy_outside_enum` |
+| G42 | Private repository provider-gap declaration | ✅ | `provider_gaps.tftest.hcl::rejects_private_repository_declaration` |
+| G43 | Personal owner organization-level provider-gap declaration | ✅ | `provider_gaps.tftest.hcl::rejects_personal_organization_policy` |
+| G44 | Organization provider-gap enum | ✅ | `provider_gaps.tftest.hcl::rejects_organization_policy_outside_enum` |
 
-**Global validation coverage: 39 / 39 ≈ 100%.**
+**Global validation coverage: 44 / 44 ≈ 100%.**
 
 ## Variable validation blocks
 
@@ -122,6 +127,8 @@ terraform test
 | N15 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
 | N17 | `allowed_actions_config` defaults (verified_allowed fail-closed, github_owned, patterns) | ✅ | `normalization.tftest.hcl::actions_config_omitted_fields_take_failclosed_defaults` + explicit-true / explicit-false runs |
+| N18 | Repository provider-gap absent/empty/null/null-member collapse and explicit projection | ✅ | `provider_gaps.tftest.hcl::repository_gap_normalization_has_exact_projection` |
+| N19 | Organization optional provider-gap members materialize as exact null keys | ✅ | `provider_gaps.tftest.hcl::organization_optional_members_materialize_as_null` |
 | CO1 | Org mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::org_mode_uses_global_codeowners_default` |
 | CO2 | Per-repo `codeowners` overrides the global default | ✅ | `normalization.tftest.hcl::org_mode_per_repo_codeowners_overrides_global_default` |
 | CO3 | Personal mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::personal_mode_uses_global_codeowners_default` |
@@ -129,7 +136,7 @@ terraform test
 | CO5 | Org mode with no default retains the ruleset precondition guard | ✅ | `preconditions.tftest.hcl::rejects_org_mode_codeowners_required_but_missing` |
 | CO6 | Empty personal default synthesizes; whitespace org default triggers the guard | ✅ | `normalization.tftest.hcl::personal_mode_empty_codeowners_default_synthesizes` + `normalization.tftest.hcl::org_mode_whitespace_codeowners_default_is_rejected` |
 
-**Normalization coverage: 23 / 23 ≈ 100%.**
+**Normalization coverage: 25 / 25 ≈ 100%.**
 
 ## Inventory completeness
 
