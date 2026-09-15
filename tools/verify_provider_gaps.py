@@ -15,6 +15,7 @@ import http.client
 import json
 import os
 import re
+import signal
 import sys
 import time
 from collections import Counter
@@ -92,6 +93,10 @@ class ContractError(ValueError):
 
 class TransportFailure(Exception):
     """A request did not yield one complete HTTP response before its deadline."""
+
+
+class _RequestDeadlineExpired(Exception):
+    """The single wall-clock budget for one request expired."""
 
 
 def _is_json_number(value: Any) -> bool:
@@ -343,6 +348,7 @@ class GitHubClient:
             raise TransportFailure
         deadline = time.monotonic() + self._timeout
         connection: http.client.HTTPConnection | None = None
+        previous_alarm_handler = signal.getsignal(signal.SIGALRM)
 
         def remaining() -> float:
             value = deadline - time.monotonic()
@@ -350,7 +356,12 @@ class GitHubClient:
                 raise TimeoutError
             return value
 
+        def deadline_expired(_signum: int, _frame: Any) -> None:
+            raise _RequestDeadlineExpired
+
         try:
+            signal.signal(signal.SIGALRM, deadline_expired)
+            signal.setitimer(signal.ITIMER_REAL, remaining())
             connection = self._connection_factory(API_HOST, self._timeout)
             connection.connect()
             self._set_socket_timeout(connection, remaining())
@@ -366,7 +377,7 @@ class GitHubClient:
             )
             self._set_socket_timeout(connection, remaining())
             response = connection.getresponse()
-            if type(response.status) is not int:
+            if type(response.status) is not int or not 100 <= response.status <= 599:
                 raise TransportFailure
             body = bytearray()
             while True:
@@ -381,6 +392,8 @@ class GitHubClient:
         except Exception as exc:
             raise TransportFailure from exc
         finally:
+            signal.setitimer(signal.ITIMER_REAL, 0.0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
             if connection is not None:
                 try:
                     connection.close()
@@ -408,6 +421,8 @@ def _decode_response_object(body: bytes) -> Any:
 
 def classify_response(target: dict[str, Any], response: HttpResponse) -> dict[str, Any]:
     """Apply the ordered response classifier after declaration/credential checks."""
+    if type(response.status) is not int or not 100 <= response.status <= 599:
+        return _row(target, "INDETERMINATE", "transport-failure")
     if target["visibility"] == "private":
         if response.status != 422:
             return _row(target, "INDETERMINATE", f"http-{response.status}")
@@ -566,6 +581,8 @@ def _validate_target_row(row: dict[str, Any], target: dict[str, Any]) -> None:
         raise ContractError("invalid result reason")
     reason = row["reason"]
     private = target["visibility"] == "private"
+    http_match = HTTP_REASON_RE.fullmatch(reason)
+    http_status = int(http_match.group(1)) if http_match is not None else None
 
     if private and declared is not None:
         valid = (
@@ -602,9 +619,14 @@ def _validate_target_row(row: dict[str, Any], target: dict[str, Any]) -> None:
             "approval-policy-not-string",
             "live-policy-unknown",
         }
+        valid_http = (
+            http_status is not None
+            and 100 <= http_status <= 599
+            and ((private and http_status != 422) or (not private and http_status != 200))
+        )
         valid = live is None and (
             reason in general
-            or HTTP_REASON_RE.fullmatch(reason) is not None
+            or valid_http
             or (private and reason == "private-422-contract-mismatch")
             or (not private and reason in response_reasons)
         )
@@ -648,6 +670,22 @@ def validate_results(
         raise ContractError("incorrect result target count")
     for row, target in zip(rows, targets):
         _validate_target_row(row, target)
+    requestable_rows = [
+        row
+        for row, target in zip(rows, targets)
+        if (target["visibility"] == "private" and target["declared_policy"] is None)
+        or (target["visibility"] != "private" and target["declared_policy"] is not None)
+    ]
+    if any(
+        row["classification"] == "INDETERMINATE"
+        and row["reason"] == "credential-missing"
+        for row in requestable_rows
+    ) and not all(
+        row["classification"] == "INDETERMINATE"
+        and row["reason"] == "credential-missing"
+        for row in requestable_rows
+    ):
+        raise ContractError("inconsistent credential-missing results")
     return document
 
 
@@ -1024,10 +1062,16 @@ def render_summary(
         lines.extend(("", "No actionable provider-gap findings."))
 
     if not tf_rows and not inventory_actionable and not gap_rows:
+        all_clear = (
+            "Infrastructure matches the declared Terraform, inventory, and "
+            "provider-gap configuration."
+            if is_organization
+            else "Infrastructure matches the declared Terraform and provider-gap configuration."
+        )
         lines.extend(
             (
                 "",
-                "Infrastructure matches the declared Terraform, inventory, and provider-gap configuration.",
+                all_clear,
             )
         )
     return "\n".join(lines) + "\n"

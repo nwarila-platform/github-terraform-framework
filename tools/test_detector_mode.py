@@ -398,6 +398,16 @@ class WorkflowPredicateTests(unittest.TestCase):
                 self.assertEqual(
                     values["Terraform init (S3 backend)"], not actual[3]
                 )
+                detector_mode = drift_issue and not plan_only and not apply
+                self.assertFalse(
+                    values["Terraform apply"] and detector_mode,
+                    "Terraform apply must never run in detector mode",
+                )
+                self.assertFalse(
+                    values["Terraform apply"]
+                    and not values["Guard repository destroys"],
+                    "Terraform apply must never run when the destroy guard is skipped",
+                )
                 self.assertFalse(actual[5] and (not actual[3] or actual[2]))
                 self.assertEqual(actual[4], actual[5])
                 self.assertEqual(actual[5], actual[6])
@@ -670,6 +680,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         changes: list[dict] | None = None,
         existing: str = "",
         prior_resources: list[object] | None = None,
+        planned_resources: list[object] | None = None,
         is_organization: bool = True,
         detector_mode: bool = True,
         desired_state: dict | str | None = None,
@@ -693,7 +704,9 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
             "resource_drift": [],
             "checks": checks if checks is not None else [inventory_check()],
             "prior_state": {"values": {"root_module": {"resources": prior_resources}}},
-            "planned_values": {"root_module": {"resources": []}},
+            "planned_values": {
+                "root_module": {"resources": planned_resources or []}
+            },
             "raw_plan_marker": RAW_PLAN_SENTINEL,
         }
 
@@ -1191,7 +1204,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
 
     def test_non_detector_modes_do_not_classify_inventory(self):
         modes = {
-            "pr-plan-only": {"plan_only": True, "apply": False, "drift_issue": True},
+            "plan-only": {"plan_only": True, "apply": False, "drift_issue": False},
             "ordinary-dispatch": {"plan_only": False, "apply": False, "drift_issue": False},
             "applying-dispatch": {"plan_only": False, "apply": True, "drift_issue": False},
         }
@@ -1215,8 +1228,9 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                     self.assertEqual(records, [])
                     self.assertEqual(curl_calls, 0)
                     self.assertEqual(curl_argv, [])
-                    self.assertNotIn("INVENTORY /", summary)
-                    self.assertNotIn("INVENTORY /", surfaces)
+                    self.assertNotIn("INVENTORY", summary)
+                    self.assertNotIn("inventory", summary.lower())
+                    self.assertNotIn("INVENTORY", surfaces)
 
     def test_personal_detector_empty_projection_ignores_inventory_check(self):
         for check_case, checks in boundary_inventory_checks().items():
@@ -1233,14 +1247,52 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 )
                 self.assertEqual(curl_calls, 0)
                 self.assertEqual(curl_argv, [])
-                self.assertNotIn("INVENTORY /", summary)
-                self.assertNotIn("INVENTORY /", surfaces)
+                self.assertNotIn("INVENTORY", summary)
+                self.assertNotIn("inventory", summary.lower())
+                self.assertNotIn("INVENTORY", surfaces)
                 self.assertFalse(
                     any(
                         record["args"][:2] in (["issue", "create"], ["issue", "edit"])
                         for record in records
                     )
                 )
+
+    def test_personal_detector_clean_summary_has_exact_two_plane_all_clear(self):
+        records, summary, surfaces, curl_calls, curl_argv = (
+            self.run_inventory_projections(is_organization=False)
+        )
+        self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
+        self.assertEqual(curl_calls, 0)
+        self.assertEqual(curl_argv, [])
+        self.assertIn(
+            "Infrastructure matches the declared Terraform and provider-gap configuration.",
+            summary,
+        )
+        self.assertNotIn("inventory", summary.lower())
+        self.assertNotIn("inventory", surfaces.lower())
+
+    def test_personal_clean_recovery_closes_with_exact_two_plane_comment(self):
+        records, summary, surfaces, curl_calls, curl_argv = (
+            self.run_inventory_projections(
+                is_organization=False,
+                existing="42",
+            )
+        )
+        self.assertEqual(curl_calls, 0)
+        self.assertEqual(curl_argv, [])
+        comment = self.command(records, "issue", "comment")
+        expected = (
+            "Resolved — Terraform resource changes and provider-gap actionable findings "
+            "are all empty as of [this run](https://example.invalid/actions/runs/1)."
+        )
+        self.assertEqual(
+            comment["args"][comment["args"].index("--body") + 1],
+            expected,
+        )
+        close = self.command(records, "issue", "close")
+        self.assertEqual(close["args"][2], "42")
+        self.assertNotIn("inventory", summary.lower())
+        self.assertNotIn("inventory", surfaces.lower())
 
     def test_personal_detector_terraform_only_projection_ignores_inventory_check(self):
         changed = change('github_repository.repo["changed"]', ["update"])
@@ -1258,9 +1310,11 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 self.assertEqual(curl_argv, [])
                 self.assertIn('github_repository.repo["changed"]', summary)
                 self.assertIn(DRIFT, issue["body"])
-                self.assertNotIn("INVENTORY /", summary)
-                self.assertNotIn("INVENTORY /", issue["body"])
-                self.assertNotIn("INVENTORY /", surfaces)
+                self.assertNotIn("INVENTORY", summary)
+                self.assertNotIn("inventory", summary.lower())
+                self.assertNotIn("INVENTORY", issue["body"])
+                self.assertNotIn("inventory", issue["body"].lower())
+                self.assertNotIn("INVENTORY", surfaces)
 
     def test_metadata_timeout_has_exact_argv_and_reaches_both_projections(self):
         records, summary, surfaces, curl_calls, curl_argv = (
@@ -1297,7 +1351,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         )
         self.assertEqual(curl_calls, 0)
         self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
-        self.assertNotIn("INVENTORY /", rendered)
+        self.assertNotIn("inventory", rendered.lower())
         self.assertNotIn(INVENTORY_UNVERIFIED, surfaces)
 
     def test_refused_delete_still_reaches_reporter_in_detector_mode(self):
@@ -1440,6 +1494,127 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                     self.assertIn(provider_gaps.PRIVATE_RESOURCE_REDACTED, issue["body"])
                 else:
                     self.assertEqual(records, [])
+
+    def test_distinct_private_instance_key_is_redacted_from_all_workflow_surfaces(self):
+        private_name = "synthetic-private-name-a1"
+        instance_key = "synthetic-private-key-b2"
+        repository_address = f'github_repository.repo["{instance_key}"]'
+        dependent_address = f'github_repository_file.codeowners["{instance_key}"]'
+        desired = provider_gap_projection(is_organization=False)
+        gap_results = provider_gaps.result_document([])
+
+        def state_row(visibility: str) -> dict:
+            return {
+                "address": repository_address,
+                "mode": "managed",
+                "type": "github_repository",
+                "name": "repo",
+                "index": instance_key,
+                "values": {"name": private_name, "visibility": visibility},
+            }
+
+        def repository_change(before_visibility: str, after_visibility: str) -> dict:
+            return {
+                "address": repository_address,
+                "mode": "managed",
+                "type": "github_repository",
+                "name": "repo",
+                "index": instance_key,
+                "change": {
+                    "actions": ["update"],
+                    "before": {"name": private_name, "visibility": before_visibility},
+                    "after": {"name": private_name, "visibility": after_visibility},
+                },
+            }
+
+        dependent_change = {
+            "address": dependent_address,
+            "mode": "managed",
+            "type": "github_repository_file",
+            "name": "codeowners",
+            "index": instance_key,
+            "change": {"actions": ["update"], "before": {}, "after": {}},
+        }
+        cases = {
+            "prior_state": (
+                [state_row("private")],
+                [state_row("public")],
+                repository_change("public", "public"),
+            ),
+            "planned_values": (
+                [state_row("public")],
+                [state_row("private")],
+                repository_change("public", "public"),
+            ),
+            "change_before": (
+                [state_row("public")],
+                [state_row("public")],
+                repository_change("private", "public"),
+            ),
+            "change_after": (
+                [state_row("public")],
+                [state_row("public")],
+                repository_change("public", "private"),
+            ),
+        }
+
+        for source, (prior, planned, repository_change_row) in cases.items():
+            with self.subTest(source=source):
+                changes = [repository_change_row, dependent_change]
+                plan = {
+                    "prior_state": {"values": {"root_module": {"resources": prior}}},
+                    "planned_values": {"root_module": {"resources": planned}},
+                    "resource_changes": changes,
+                }
+                self.assertEqual(
+                    provider_gaps.private_redaction_set(plan, desired),
+                    {private_name, instance_key},
+                )
+
+                records, detector_summary, detector_surfaces, _, _ = (
+                    self.run_inventory_projections(
+                        changes=changes,
+                        prior_resources=prior,
+                        planned_resources=planned,
+                        is_organization=False,
+                        desired_state=desired,
+                        gap_results=gap_results,
+                    )
+                )
+                issue = self.command(records, "issue", "create")
+                non_detector_records, non_detector_summary, non_detector_surfaces, _, _ = (
+                    self.run_inventory_projections(
+                        changes=changes,
+                        prior_resources=prior,
+                        planned_resources=planned,
+                        is_organization=False,
+                        detector_mode=False,
+                        desired_state=desired,
+                    )
+                )
+                self.assertEqual(non_detector_records, [])
+                surfaces = "\n".join(
+                    (
+                        detector_surfaces,
+                        non_detector_surfaces,
+                        issue["body"],
+                        "",  # Successful renderers emit no workflow annotation.
+                    )
+                )
+                for secret in (
+                    private_name,
+                    instance_key,
+                    repository_address,
+                    dependent_address,
+                ):
+                    self.assertNotIn(secret, surfaces)
+                self.assertEqual(
+                    detector_summary.count("<private-resource-redacted>"), 2
+                )
+                self.assertEqual(
+                    non_detector_summary.count("<private-resource-redacted>"), 2
+                )
+                self.assertEqual(issue["body"].count("<private-resource-redacted>"), 2)
 
     def test_private_provider_target_indeterminate_is_redacted_on_every_surface(self):
         private_name = PRIVATE_PROVIDER_SENTINEL
@@ -1619,17 +1794,176 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 self.assertNotIn(unsafe_name, surfaces)
                 self.assertNotIn("issue close", surfaces)
 
+    def test_each_missing_detector_input_stops_before_issue_lifecycle(self):
+        desired = provider_gap_projection(is_organization=False)
+        results = provider_gaps.result_document([])
+        plan = {
+            "prior_state": {"values": {"root_module": {"resources": []}}},
+            "planned_values": {"root_module": {"resources": []}},
+            "resource_changes": [],
+            "checks": [inventory_check()],
+        }
+        contents = {
+            "plan.json": plan,
+            "provider-gap-desired-state.json": desired,
+            "provider-gap-results.json": results,
+        }
+        for missing in contents:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as raw_tmp:
+                root = Path(raw_tmp)
+                tmp = self.stage_provider_gap_tool(root)
+                for filename, value in contents.items():
+                    if filename != missing:
+                        (tmp / filename).write_text(json.dumps(value), encoding="utf-8")
+                gh_log = tmp / "gh.jsonl"
+                gh_stub = tmp / "gh_stub.py"
+                gh_stub.write_text(
+                    "import os\n"
+                    "with open(os.environ['GH_LOG'], 'a', encoding='utf-8') as fh:\n"
+                    "    fh.write('called\\n')\n",
+                    encoding="utf-8",
+                )
+                summary_file = tmp / "summary.md"
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "GH_LOG": str(gh_log),
+                        "GH_STUB": str(gh_stub),
+                        "EXISTING_ISSUE": "42",
+                        "GH_TOKEN": "stub-token",
+                        "REPO": "example/caller",
+                        "RUN_URL": "https://example.invalid/actions/runs/1",
+                        "TF_VAR_github_is_organization": "false",
+                        "TF_VAR_github_owner": INVENTORY_OWNER,
+                        "TF_VAR_github_token": TOKEN_SENTINEL,
+                        "DETECTOR_MODE": "true",
+                        "GITHUB_STEP_SUMMARY": str(summary_file),
+                    }
+                )
+                summary_proc = subprocess.run(
+                    ["bash", "-c", self.summary],
+                    cwd=tmp,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(summary_proc.returncode, 0)
+                reporter_proc = subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        f'''gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
+{self.reporter}''',
+                    ],
+                    cwd=tmp,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(reporter_proc.returncode, 0)
+                self.assertFalse(gh_log.exists())
+                surfaces = "\n".join(
+                    (
+                        summary_proc.stdout,
+                        summary_proc.stderr,
+                        reporter_proc.stdout,
+                        reporter_proc.stderr,
+                        summary_file.read_text(encoding="utf-8")
+                        if summary_file.exists()
+                        else "",
+                    )
+                )
+                self.assertNotIn("Infrastructure matches", surfaces)
+                self.assertNotIn("issue edit", surfaces)
+                self.assertNotIn("issue close", surfaces)
+
     def test_provider_gap_workflow_wrapper_and_cleanup_are_closed(self):
         verifier = step_run("Verify provider gaps")
-        self.assertIn("set +e", verifier)
-        self.assertIn("verifier_status=$?", verifier)
-        self.assertIn("set -e", verifier)
-        self.assertEqual(verifier.count("$GITHUB_OUTPUT"), 1)
-        self.assertIn('echo "exit_code=${verifier_status}"', verifier)
         self.assertNotIn("TF_VAR_github_token", verifier)
         extraction = step_run("Extract provider-gap desired state")
-        self.assertIn(".planned_values.outputs.provider_gap_desired_state.value", extraction)
-        self.assertNotIn("// {}", extraction)
+
+        distinctive = {
+            "schema_version": 1,
+            "nested": {"marker": ["wrapper-extraction-sentinel", {"exact": True}]},
+        }
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = Path(raw_tmp)
+            (tmp / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "planned_values": {
+                            "outputs": {
+                                "provider_gap_desired_state": {"value": distinctive}
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                ["bash", "-c", extraction],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(
+                json.loads(
+                    (tmp / "provider-gap-desired-state.json").read_text(encoding="utf-8")
+                ),
+                distinctive,
+            )
+            self.assertFalse((tmp / "provider-gap-desired-state.json.tmp").exists())
+
+            (tmp / "provider-gap-desired-state.json").unlink()
+            (tmp / "plan.json").write_text(
+                json.dumps({"planned_values": {"outputs": {}}}),
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                ["bash", "-c", extraction],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertFalse((tmp / "provider-gap-desired-state.json").exists())
+
+        for stub_exit in (0, 1, 2):
+            with self.subTest(verifier_status=stub_exit), tempfile.TemporaryDirectory(
+                dir=ROOT
+            ) as raw_tmp:
+                tmp = Path(raw_tmp)
+                stub_directory = tmp / "bin"
+                stub_directory.mkdir()
+                python_stub = stub_directory / "python3"
+                python_stub.write_text(
+                    '#!/bin/sh\nexit "$STUB_EXIT"\n',
+                    encoding="utf-8",
+                )
+                python_stub.chmod(0o755)
+                github_output = tmp / "github-output"
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "PATH": f"{stub_directory}{os.pathsep}{env['PATH']}",
+                        "GITHUB_OUTPUT": str(github_output),
+                        "STUB_EXIT": str(stub_exit),
+                    }
+                )
+                proc = subprocess.run(
+                    ["bash", "-c", verifier],
+                    cwd=tmp,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertEqual(
+                    github_output.read_text(encoding="utf-8"),
+                    f"exit_code={stub_exit}\n",
+                )
+
         cleanup = step_run("Cleanup workspace")
         self.assertIn("provider-gap-desired-state.json", cleanup)
         self.assertIn("provider-gap-results.json", cleanup)

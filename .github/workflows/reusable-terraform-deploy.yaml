@@ -116,8 +116,10 @@ on:
           When true while plan_only and apply are false, detector mode copies the
           canonical state, strips stored ETags, and reads it through a local
           backend. Imports and the destroy guard are disabled in this mode. A
-          non-empty actionable Terraform/inventory union opens (or updates) an
-          issue in the CALLER repository, and an empty union closes it.
+          non-empty union of Terraform resource changes, INVENTORY / undeclared-live,
+          INVENTORY / enumeration-unverified, and provider-gap findings opens (or
+          updates) an issue in the CALLER repository, and an empty three-plane union
+          closes it.
           drift_issue always suppresses apply.
 
           Requires `issues: write` on the calling job. Ignored under plan_only;
@@ -780,8 +782,13 @@ jobs:
             # Recovery is a signal too: without it the issue outlives the drift and
             # the next genuine alert arrives on an already-open thread nobody reads.
             if [ -n "$EXISTING" ]; then
+              if [ "${TF_VAR_github_is_organization}" = "true" ]; then
+                RECOVERY="Resolved — Terraform resource changes, INVENTORY / undeclared-live, INVENTORY / enumeration-unverified, and provider-gap actionable findings are all empty as of [this run]($RUN_URL)."
+              else
+                RECOVERY="Resolved — Terraform resource changes and provider-gap actionable findings are all empty as of [this run]($RUN_URL)."
+              fi
               gh issue comment "$EXISTING" --repo "$REPO" \
-                --body "Resolved — Terraform resource changes, INVENTORY / undeclared-live, INVENTORY / enumeration-unverified, and provider-gap actionable findings are all empty as of [this run]($RUN_URL)."
+                --body "$RECOVERY"
               gh issue close "$EXISTING" --repo "$REPO"
               echo "drift resolved; closed #$EXISTING"
             else

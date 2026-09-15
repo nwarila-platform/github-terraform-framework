@@ -10,6 +10,8 @@ import io
 import json
 import os
 import re
+import signal
+import socket
 import subprocess
 import tempfile
 import threading
@@ -107,13 +109,19 @@ def exact_row(
     }
 
 
-def managed_repository_row(name: str, visibility: str, *, address: str | None = None) -> dict:
+def managed_repository_row(
+    name: str,
+    visibility: str,
+    *,
+    address: str | None = None,
+    index: str | None = None,
+) -> dict:
     return {
         "address": address or f'github_repository.repo["{name}"]',
         "mode": "managed",
         "type": "github_repository",
         "name": "repo",
-        "index": name,
+        "index": name if index is None else index,
         "values": {"name": name, "visibility": visibility},
     }
 
@@ -183,6 +191,74 @@ def change(
     if index is not None:
         row["index"] = index
     return row
+
+
+def run_raw_http_response(
+    chunks: list[bytes],
+    *,
+    timeout: float,
+    delay: float,
+    value: dict | None = None,
+) -> tuple[dict, int, int, float]:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(2.0)
+    requests = 0
+
+    def serve() -> None:
+        nonlocal requests
+        try:
+            connection, _ = listener.accept()
+            with connection:
+                request = bytearray()
+                while b"\r\n\r\n" not in request:
+                    part = connection.recv(4096)
+                    if not part:
+                        return
+                    request.extend(part)
+                requests += 1
+                for chunk in chunks:
+                    try:
+                        connection.sendall(chunk)
+                    except OSError:
+                        return
+                    time.sleep(delay)
+        finally:
+            listener.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    port = listener.getsockname()[1]
+
+    def factory(_host: str, connection_timeout: float) -> http.client.HTTPConnection:
+        return http.client.HTTPConnection("127.0.0.1", port, timeout=connection_timeout)
+
+    started = time.monotonic()
+    client = gaps.GitHubClient(TOKEN, timeout=timeout, connection_factory=factory)
+    document, status = gaps.verify_projection(
+        projection() if value is None else value,
+        token=TOKEN,
+        client=client,
+    )
+    elapsed = time.monotonic() - started
+    thread.join(timeout=2.0)
+    if thread.is_alive():
+        raise AssertionError("raw HTTP peer did not stop")
+    return document, status, requests, elapsed
+
+
+class ContractLiteralTests(unittest.TestCase):
+    def test_production_contract_literals_are_pinned_independently(self):
+        self.assertEqual(
+            gaps.PRIVATE_422_ERROR,
+            "Fork PR approval is not allowed for private repositories.",
+        )
+        self.assertEqual(gaps.API_VERSION, "2026-03-10")
+        self.assertEqual(gaps.PRIVATE_REPOSITORY_REDACTED, "<private-repository-redacted>")
+        self.assertEqual(gaps.PRIVATE_RESOURCE_REDACTED, "<private-resource-redacted>")
+        self.assertEqual(gaps.REQUEST_TIMEOUT_SECONDS, 30.0)
 
 
 class ProjectionContractTests(unittest.TestCase):
@@ -527,6 +603,271 @@ class DeclarationAndClassifierTests(unittest.TestCase):
             [exact_row(classification="INDETERMINATE", reason="transport-failure")],
         )
 
+    def test_every_valid_http_status_obeys_the_closed_classifier_contract(self):
+        applicable_projection = projection()
+        applicable_target = gaps.desired_targets(applicable_projection)[0]
+        private_projection = projection(
+            repositories={
+                "private": repository("private", visibility="private", policy=None)
+            }
+        )
+        private_target = gaps.desired_targets(private_projection)[0]
+
+        for status_code in range(100, 600):
+            with self.subTest(target="applicable", status=status_code):
+                row = gaps.classify_response(
+                    applicable_target,
+                    response(status_code, {"approval_policy": POLICY}),
+                )
+                if status_code == 200:
+                    self.assertEqual((row["classification"], row["reason"]), ("MATCH", "policy-match"))
+                else:
+                    self.assertEqual(
+                        (row["classification"], row["reason"]),
+                        ("INDETERMINATE", f"http-{status_code}"),
+                    )
+                gaps.validate_results(gaps.result_document([row]), applicable_projection)
+
+            with self.subTest(target="private", status=status_code):
+                row = gaps.classify_response(
+                    private_target,
+                    response(
+                        status_code,
+                        {"errors": "Fork PR approval is not allowed for private repositories."},
+                    ),
+                )
+                if status_code == 422:
+                    self.assertEqual(
+                        (row["classification"], row["reason"]),
+                        ("NOT-APPLICABLE", "private-repository"),
+                    )
+                else:
+                    self.assertEqual(
+                        (row["classification"], row["reason"]),
+                        ("INDETERMINATE", f"http-{status_code}"),
+                    )
+                gaps.validate_results(gaps.result_document([row]), private_projection)
+
+    def test_non_http_branches_form_one_closed_row_contract(self):
+        applicable_projection = projection()
+        private_projection = projection(
+            repositories={
+                "private": repository("private", visibility="private", policy=None)
+            }
+        )
+        cases = [
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="credential-missing"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="transport-failure"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="malformed-json"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="response-not-object"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="approval-policy-missing"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="approval-policy-not-string"),
+            ),
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="live-policy-unknown"),
+            ),
+            (
+                applicable_projection,
+                exact_row(
+                    classification="MATCH",
+                    live=POLICY,
+                    reason="policy-match",
+                ),
+            ),
+            (
+                projection(repositories={"fixture": repository("fixture", policy=OTHER_POLICY)}),
+                exact_row(
+                    classification="DRIFT",
+                    declared=OTHER_POLICY,
+                    live=POLICY,
+                    reason="policy-mismatch",
+                ),
+            ),
+            (
+                private_projection,
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="INDETERMINATE",
+                    declared=None,
+                    reason="credential-missing",
+                ),
+            ),
+            (
+                private_projection,
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="INDETERMINATE",
+                    declared=None,
+                    reason="transport-failure",
+                ),
+            ),
+            (
+                private_projection,
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="INDETERMINATE",
+                    declared=None,
+                    reason="private-422-contract-mismatch",
+                ),
+            ),
+            (
+                private_projection,
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="NOT-APPLICABLE",
+                    declared=None,
+                    reason="private-repository",
+                ),
+            ),
+            (
+                projection(repositories={"missing": repository("missing", policy=None)}),
+                exact_row(
+                    target=f"{OWNER}/missing",
+                    classification="DECLARATION-ERROR",
+                    declared=None,
+                    reason="declaration-missing",
+                ),
+            ),
+            (
+                projection(
+                    repositories={
+                        "private": repository("private", visibility="private", policy=POLICY)
+                    }
+                ),
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="DECLARATION-ERROR",
+                    reason="private-declaration-forbidden",
+                ),
+            ),
+        ]
+        for case_projection, row in cases:
+            with self.subTest(reason=row["reason"], target=row["target"]):
+                gaps.validate_results(gaps.result_document([row]), case_projection)
+
+        gaps.validate_results(gaps.result_document([gaps.invalid_projection_result()]))
+
+    def test_impossible_http_reasons_and_mixed_credentials_are_rejected(self):
+        applicable_projection = projection()
+        private_projection = projection(
+            repositories={
+                "private": repository("private", visibility="private", policy=None)
+            }
+        )
+        for status_code in (0, 99, 600, 999):
+            for case_projection, target, declared in (
+                (applicable_projection, f"{OWNER}/fixture", POLICY),
+                (private_projection, f"{OWNER}/private", None),
+            ):
+                with self.subTest(status=status_code, target=target):
+                    row = exact_row(
+                        target=target,
+                        classification="INDETERMINATE",
+                        declared=declared,
+                        reason=f"http-{status_code:03d}",
+                    )
+                    with self.assertRaises(gaps.ContractError):
+                        gaps.validate_results(gaps.result_document([row]), case_projection)
+
+        impossible = (
+            (
+                applicable_projection,
+                exact_row(classification="INDETERMINATE", reason="http-200"),
+            ),
+            (
+                private_projection,
+                exact_row(
+                    target=f"{OWNER}/private",
+                    classification="INDETERMINATE",
+                    declared=None,
+                    reason="http-422",
+                ),
+            ),
+        )
+        for case_projection, row in impossible:
+            with self.subTest(reason=row["reason"]):
+                with self.assertRaises(gaps.ContractError):
+                    gaps.validate_results(gaps.result_document([row]), case_projection)
+
+        applicable_target = gaps.desired_targets(applicable_projection)[0]
+        for invalid_status in (True, False, -1, 600, 999):
+            with self.subTest(direct_status=invalid_status):
+                row = gaps.classify_response(
+                    applicable_target,
+                    response(invalid_status, {"approval_policy": POLICY}),
+                )
+                self.assertEqual(
+                    (row["classification"], row["reason"]),
+                    ("INDETERMINATE", "transport-failure"),
+                )
+                gaps.validate_results(gaps.result_document([row]), applicable_projection)
+
+        allowed_projection = projection(
+            repositories={
+                "missing": repository("missing", policy=None),
+                "requestable": repository("requestable", policy=POLICY),
+            }
+        )
+        gaps.validate_results(
+            gaps.result_document(
+                [
+                    exact_row(
+                        target=f"{OWNER}/missing",
+                        classification="DECLARATION-ERROR",
+                        declared=None,
+                        reason="declaration-missing",
+                    ),
+                    exact_row(
+                        target=f"{OWNER}/requestable",
+                        classification="INDETERMINATE",
+                        reason="credential-missing",
+                    ),
+                ]
+            ),
+            allowed_projection,
+        )
+
+        mixed_projection = projection(
+            repositories={
+                "alpha": repository("alpha"),
+                "beta": repository("beta"),
+            }
+        )
+        mixed = gaps.result_document(
+            [
+                exact_row(
+                    target=f"{OWNER}/alpha",
+                    classification="INDETERMINATE",
+                    reason="credential-missing",
+                ),
+                exact_row(
+                    target=f"{OWNER}/beta",
+                    classification="INDETERMINATE",
+                    reason="http-403",
+                ),
+            ]
+        )
+        with self.assertRaises(gaps.ContractError):
+            gaps.validate_results(mixed, mixed_projection)
+
 
 class ShippedHttpClientTests(unittest.TestCase):
     def run_server_case(self, location: str) -> tuple[dict, int, list[dict]]:
@@ -668,6 +1009,73 @@ class ShippedHttpClientTests(unittest.TestCase):
         diagnostic_surfaces = stdout.getvalue() + stderr.getvalue()
         self.assertNotIn(TOKEN, diagnostic_surfaces)
         self.assertNotIn(PRIVATE_NAME, diagnostic_surfaces)
+
+    def test_trickled_headers_and_body_share_one_wall_clock_deadline(self):
+        valid_body = json.dumps({"approval_policy": POLICY}).encode()
+        headers = (
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+            + f"Content-Length: {len(valid_body)}\r\nConnection: close\r\n\r\n".encode()
+        )
+        cases = {
+            "headers": [bytes((byte,)) for byte in headers + valid_body],
+            "body": [headers] + [bytes((byte,)) for byte in valid_body],
+        }
+        original_handler = signal.getsignal(signal.SIGALRM)
+
+        def prior_handler(_signum, _frame):
+            raise AssertionError("restored deadline fired unexpectedly")
+
+        signal.signal(signal.SIGALRM, prior_handler)
+        try:
+            for label, chunks in cases.items():
+                with self.subTest(case=label):
+                    document, status, requests, elapsed = run_raw_http_response(
+                        chunks,
+                        timeout=0.5,
+                        delay=0.05,
+                    )
+                    self.assertEqual(requests, 1)
+                    self.assertLess(elapsed, 1.0)
+                    self.assertEqual(status, 1)
+                    self.assertEqual(
+                        document["results"],
+                        [
+                            exact_row(
+                                classification="INDETERMINATE",
+                                reason="transport-failure",
+                            )
+                        ],
+                    )
+                    self.assertIs(signal.getsignal(signal.SIGALRM), prior_handler)
+                    self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0.0)
+            signal.signal(signal.SIGALRM, original_handler)
+
+    def test_raw_out_of_range_statuses_are_transport_failures(self):
+        for status_code in (600, 999):
+            with self.subTest(status=status_code):
+                document, status, requests, _ = run_raw_http_response(
+                    [
+                        (
+                            f"HTTP/1.1 {status_code} Synthetic\r\n"
+                            "Content-Length: 0\r\nConnection: close\r\n\r\n"
+                        ).encode()
+                    ],
+                    timeout=0.5,
+                    delay=0.0,
+                )
+                self.assertEqual(requests, 1)
+                self.assertEqual(status, 1)
+                self.assertEqual(
+                    document["results"],
+                    [
+                        exact_row(
+                            classification="INDETERMINATE",
+                            reason="transport-failure",
+                        )
+                    ],
+                )
 
 
 class ResultContractTests(unittest.TestCase):
@@ -861,6 +1269,125 @@ class ReporterProjectionTests(unittest.TestCase):
                 self.assertNotIn(private, rendered)
                 self.assertNotIn(repository_address, rendered)
                 self.assertNotIn(dependent_address, rendered)
+
+    def test_distinct_private_instance_key_is_redacted_from_every_rendered_surface(self):
+        private_name = "synthetic-private-name-a1"
+        instance_key = "synthetic-private-key-b2"
+        repository_address = f'github_repository.repo["{instance_key}"]'
+        dependent_address = f'github_repository_file.codeowners["{instance_key}"]'
+        value = projection(repositories={})
+        results = gaps.result_document([])
+
+        def state_row(visibility: str) -> dict:
+            return managed_repository_row(
+                private_name,
+                visibility,
+                address=repository_address,
+                index=instance_key,
+            )
+
+        def repository_change(before_visibility: str, after_visibility: str) -> dict:
+            return change(
+                repository_address,
+                ["update"],
+                resource_type="github_repository",
+                index=instance_key,
+                before={"name": private_name, "visibility": before_visibility},
+                after={"name": private_name, "visibility": after_visibility},
+            )
+
+        cases = {
+            "prior_state": (
+                [state_row("private")],
+                [state_row("public")],
+                repository_change("public", "public"),
+            ),
+            "planned_values": (
+                [state_row("public")],
+                [state_row("private")],
+                repository_change("public", "public"),
+            ),
+            "change_before": (
+                [state_row("public")],
+                [state_row("public")],
+                repository_change("private", "public"),
+            ),
+            "change_after": (
+                [state_row("public")],
+                [state_row("public")],
+                repository_change("public", "private"),
+            ),
+        }
+        dependent_change = change(
+            dependent_address,
+            ["update"],
+            resource_type="github_repository_file",
+            index=instance_key,
+            before={},
+            after={},
+        )
+
+        for source, (prior, planned, repository_change_row) in cases.items():
+            with self.subTest(source=source):
+                plan = plan_document(
+                    changes=[repository_change_row, dependent_change],
+                    prior_resources=prior,
+                    planned_resources=planned,
+                )
+                self.assertEqual(
+                    gaps.private_redaction_set(plan, value),
+                    {private_name, instance_key},
+                )
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    non_detector_summary = gaps.render_summary(
+                        plan,
+                        value,
+                        None,
+                        detector=False,
+                        is_organization=False,
+                        owner=OWNER,
+                    )
+                    detector_summary = gaps.render_summary(
+                        plan,
+                        value,
+                        results,
+                        detector=True,
+                        is_organization=False,
+                        owner=OWNER,
+                    )
+                    report = gaps.render_report(
+                        plan,
+                        value,
+                        results,
+                        is_organization=False,
+                        owner=OWNER,
+                    )
+                surfaces = "\n".join(
+                    (
+                        stdout.getvalue(),
+                        stderr.getvalue(),
+                        non_detector_summary,
+                        detector_summary,
+                        report,
+                        "",  # No annotation is produced by either renderer.
+                    )
+                )
+                for secret in (
+                    private_name,
+                    instance_key,
+                    repository_address,
+                    dependent_address,
+                ):
+                    self.assertNotIn(secret, surfaces)
+                self.assertEqual(
+                    non_detector_summary.count("<private-resource-redacted>"), 2
+                )
+                self.assertEqual(
+                    detector_summary.count("<private-resource-redacted>"), 2
+                )
+                self.assertEqual(report.count("<private-resource-redacted>"), 2)
 
     def test_three_plane_all_clear_requires_every_plane_empty(self):
         value = projection(

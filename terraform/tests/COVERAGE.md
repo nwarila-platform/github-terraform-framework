@@ -193,23 +193,32 @@ terraform test
 
 | Layer | Covered | Total | % |
 |---|---|---|---|
-| Global validation | 39 | 39 | 100% |
+| Global validation | 44 | 44 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 23 | 23 | 100% |
+| Normalization paths | 25 | 25 | 100% |
 | Inventory completeness | 12 | 12 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **101** | **101** | **100%** |
+| **Overall** | **108** | **108** | **100%** |
 
 ## Test run count and artifacts
 
 | Metric | Count |
 |---|---|
-| `.tftest.hcl` files | 8 |
-| `run` blocks total | 97 |
-| Fixture directories | 37 |
-| Assertions total | 123 |
+| `.tftest.hcl` files | 9 |
+| `run` blocks total | 105 |
+| Fixture directories | 41 |
+| Assertions total | 127 |
+
+Recount command (run from the repository root):
+
+```bash
+find terraform/tests -maxdepth 1 -name '*.tftest.hcl' -type f | wc -l
+rg -g '*.tftest.hcl' '^run "' terraform/tests | wc -l
+find terraform/tests/fixtures -mindepth 1 -maxdepth 1 -type d | wc -l
+rg -g '*.tftest.hcl' '^  assert \{' terraform/tests | wc -l
+```
 
 ## Explicitly NOT tested (by design)
 
@@ -240,6 +249,6 @@ No Codecov. No LCOV. No equivalent for Terraform code. This matrix is the tool. 
 | `terraform-google-modules/network` | ~20 | Fixture-driven + integration |
 | Gruntwork modules | Few `tftest`, heavy terratest | Integration-first |
 | OpenTofu's own test suite | ~50 | Feature coverage |
-| **This framework** | **97** | **Fixture + coverage-matrix driven** |
+| **This framework** | **105** | **Fixture + coverage-matrix driven** |
 
 We're at the upper end of community practice without crossing into overengineering.
