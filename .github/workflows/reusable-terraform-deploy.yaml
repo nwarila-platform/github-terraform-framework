@@ -116,8 +116,9 @@ on:
           When true while plan_only and apply are false, detector mode copies the
           canonical state, strips stored ETags, and reads it through a local
           backend. Imports and the destroy guard are disabled in this mode. A
-          non-empty plan opens (or updates) an issue in the CALLER repository,
-          and an empty plan closes it. drift_issue always suppresses apply.
+          non-empty actionable Terraform/inventory union opens (or updates) an
+          issue in the CALLER repository, and an empty union closes it.
+          drift_issue always suppresses apply.
 
           Requires `issues: write` on the calling job. Ignored under plan_only;
           plan_only remains a canonical-state-backed read-only plan.
@@ -687,17 +688,19 @@ jobs:
       # Publishes on EVERY run, not just plan_only. The plan render is suppressed
       # from the (public) Actions log, so without this a workflow_dispatch plan
       # (apply=false) — the pre-apply review path — produced NO reviewable output
-      # at all. The summary is value-free (counts + address -> action), so it is
-      # safe to publish on real-state and apply runs too.
+      # at all. Resource rows are value-free (counts + address -> action), and
+      # inventory text comes only from the HCL-side redacted check message, so
+      # the summary is safe to publish on real-state and apply runs too.
       - name: Publish sanitized plan summary to job summary
         working-directory: framework/terraform
+        env:
+          DETECTOR_MODE: ${{ inputs.drift_issue && !inputs.plan_only && !inputs.apply }}
         run: |
           set -euo pipefail
-          # Emit an ALLOWLISTED summary (per-action counts + address -> action)
-          # derived from the plan JSON. No attribute VALUES are printed, so the
-          # public job summary cannot leak config/secret values. Resource
-          # addresses (which include repo names) are shown so the diff is still
-          # reviewable; deeper review uses a real-state plan run out-of-band.
+          # Emit an ALLOWLISTED summary derived from plan JSON: per-action counts
+          # and address -> action for resources, plus only the already-redacted
+          # inventory check message. No resource attribute values or raw search
+          # rows are printed. Deeper review uses a real-state plan out-of-band.
           #
           # `tee` sends the summary to BOTH the job summary and stdout. The job
           # summary is human-readable but is not exposed by any REST endpoint, so
@@ -708,9 +711,151 @@ jobs:
           #
           # This adds no disclosure: job logs and job summaries have identical
           # visibility, and the content is the same allowlisted, value-free text.
+          # A detector can call the visible repository set complete only when the
+          # same Terraform credential sees matching organization metadata. Fetch
+          # that metadata once for both public projections; never print its body.
+          : > inventory-metadata.json
+          if [ "${DETECTOR_MODE}" = "true" ] && [ "${TF_VAR_github_is_organization}" = "true" ]; then
+            printf 'failed\n' > inventory-metadata.status
+            if curl --request GET --fail --silent --show-error --max-time 30 \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${TF_VAR_github_token}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --output inventory-metadata.json \
+              "https://api.github.com/orgs/${TF_VAR_github_owner}" 2>/dev/null; then
+              printf 'ok\n' > inventory-metadata.status
+            fi
+          else
+            printf 'skipped\n' > inventory-metadata.status
+          fi
+
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
+          import os
           from collections import Counter
+
+          INVENTORY_ADDRESS = "check.inventory_complete"
+          INVENTORY_UNVERIFIED = (
+              "Repository enumeration could not be verified against organization metadata."
+          )
+
+          def inventory_check(plan):
+              checks = plan.get("checks")
+              if not isinstance(checks, list):
+                  return "unverified", []
+              matches = [
+                  entry for entry in checks
+                  if isinstance(entry, dict)
+                  and isinstance(entry.get("address"), dict)
+                  and entry["address"].get("to_display") == INVENTORY_ADDRESS
+              ]
+              if len(matches) != 1:
+                  return "unverified", []
+              entry = matches[0]
+              address = entry.get("address")
+              status = entry.get("status")
+              instances = entry.get("instances")
+              if (
+                  address.get("kind") != "check"
+                  or address.get("name") != "inventory_complete"
+                  or status not in ("pass", "fail")
+                  or not isinstance(instances, list)
+                  or len(instances) != 1
+                  or not isinstance(instances[0], dict)
+                  or instances[0].get("status") != status
+              ):
+                  return "unverified", []
+              if status == "pass":
+                  if instances[0].get("problems") not in (None, []):
+                      return "unverified", []
+                  return "pass", []
+              problems = instances[0].get("problems")
+              if not isinstance(problems, list) or not problems:
+                  return "unverified", []
+              messages = []
+              for problem in problems:
+                  if not isinstance(problem, dict):
+                      return "unverified", []
+                  message = problem.get("message")
+                  if not isinstance(message, str) or not message.strip():
+                      return "unverified", []
+                  messages.append(message)
+              return "fail", messages
+
+          def inventory_enumeration(plan):
+              if os.environ.get("DETECTOR_MODE") != "true":
+                  return "skipped"
+              if os.environ.get("TF_VAR_github_is_organization") != "true":
+                  return "skipped"
+              owner = os.environ.get("TF_VAR_github_owner", "")
+              try:
+                  resources = plan["prior_state"]["values"]["root_module"]["resources"]
+              except (KeyError, TypeError):
+                  return "unverified"
+              if not isinstance(resources, list):
+                  return "unverified"
+
+              def rows(name):
+                  return [
+                      row for row in resources
+                      if isinstance(row, dict)
+                      and row.get("mode") == "data"
+                      and row.get("type") == "github_repositories"
+                      and row.get("name") == name
+                      and row.get("index") == owner
+                  ]
+
+              owner_rows = rows("owner")
+              public_rows = rows("public")
+              if len(owner_rows) != 1 or len(public_rows) != 1:
+                  return "unverified"
+              owner_values = owner_rows[0].get("values")
+              public_values = public_rows[0].get("values")
+              if not isinstance(owner_values, dict) or not isinstance(public_values, dict):
+                  return "unverified"
+              owner_names = owner_values.get("names")
+              public_names = public_values.get("names")
+              if (
+                  not isinstance(owner_names, list)
+                  or not isinstance(public_names, list)
+                  or not all(isinstance(name, str) for name in owner_names)
+                  or not all(isinstance(name, str) for name in public_names)
+              ):
+                  return "unverified"
+              owner_set = set(owner_names)
+              public_set = set(public_names)
+              if (
+                  len(owner_names) != len(owner_set)
+                  or len(public_names) != len(public_set)
+                  or not public_set.issubset(owner_set)
+              ):
+                  return "unverified"
+              try:
+                  metadata_status = open(
+                      "inventory-metadata.status", encoding="utf-8"
+                  ).read().strip()
+                  with open("inventory-metadata.json", encoding="utf-8") as fh:
+                      metadata = json.load(fh)
+              except (OSError, UnicodeError, json.JSONDecodeError):
+                  return "unverified"
+              if metadata_status != "ok" or not isinstance(metadata, dict):
+                  return "unverified"
+              public_repos = metadata.get("public_repos")
+              private_repos = metadata.get("total_private_repos")
+              if (
+                  type(public_repos) is not int
+                  or type(private_repos) is not int
+                  or public_repos < 0
+                  or private_repos < 0
+              ):
+                  return "unverified"
+              owner_total = public_repos + private_repos
+              if owner_total >= 1000:
+                  return "unverified"
+              if len(owner_set) != owner_total or len(public_set) != public_repos:
+                  return "unverified"
+              return "pass"
+
           with open("plan.json", encoding="utf-8") as fh:
               plan = json.load(fh)
           rows = []
@@ -725,7 +870,7 @@ jobs:
           print("### Terraform plan — sanitized")
           print()
           if not rows:
-              print("No changes. Infrastructure matches the configuration.")
+              print("No actionable Terraform resource changes.")
           else:
               print("| count | action |")
               print("|---|---|")
@@ -738,12 +883,31 @@ jobs:
                   print(f"| `{addr}` | `{act}` |")
               print()
               print("_Values omitted by design (public repo). Run a real-state plan out-of-band for full detail._")
+
+          if (
+              os.environ.get("DETECTOR_MODE") == "true"
+              and os.environ.get("TF_VAR_github_is_organization") == "true"
+          ):
+              check_status, check_messages = inventory_check(plan)
+              enumeration_status = inventory_enumeration(plan)
+              if check_status == "fail":
+                  print()
+                  print("INVENTORY / undeclared-live:")
+                  for message in check_messages:
+                      print(message)
+              if check_status == "unverified" or enumeration_status == "unverified":
+                  print()
+                  print(f"INVENTORY / enumeration-unverified: {INVENTORY_UNVERIFIED}")
+              if check_status == "pass" and enumeration_status != "unverified":
+                  print()
+                  print("No actionable inventory findings.")
           PY
 
       - name: Report drift as an issue
         # Detector mode reads a copied, ETag-stripped canonical snapshot through
-        # a local backend. Issue lifecycle is keyed only to actionable
-        # resource_changes; refresh-only resource_drift entries are not reports.
+        # a local backend. Issue lifecycle is keyed to the union of actionable
+        # resource_changes and inventory findings; refresh-only resource_drift
+        # entries are not reports.
         if: ${{ inputs.drift_issue && !inputs.plan_only && !inputs.apply }}
         working-directory: framework/terraform
         env:
@@ -754,10 +918,133 @@ jobs:
           set -euo pipefail
 
           # Reuse the same allowlisted projection as the job summary: resource
-          # address and action only, never attribute values.
+          # address/action plus only the HCL-redacted inventory message, never
+          # attribute values, raw search rows, metadata bodies, or plan fragments.
           python3 - > drift.md <<'PY'
           import json
+          import os
           from collections import Counter
+
+          INVENTORY_ADDRESS = "check.inventory_complete"
+          INVENTORY_UNVERIFIED = (
+              "Repository enumeration could not be verified against organization metadata."
+          )
+
+          def inventory_check(plan):
+              checks = plan.get("checks")
+              if not isinstance(checks, list):
+                  return "unverified", []
+              matches = [
+                  entry for entry in checks
+                  if isinstance(entry, dict)
+                  and isinstance(entry.get("address"), dict)
+                  and entry["address"].get("to_display") == INVENTORY_ADDRESS
+              ]
+              if len(matches) != 1:
+                  return "unverified", []
+              entry = matches[0]
+              address = entry.get("address")
+              status = entry.get("status")
+              instances = entry.get("instances")
+              if (
+                  address.get("kind") != "check"
+                  or address.get("name") != "inventory_complete"
+                  or status not in ("pass", "fail")
+                  or not isinstance(instances, list)
+                  or len(instances) != 1
+                  or not isinstance(instances[0], dict)
+                  or instances[0].get("status") != status
+              ):
+                  return "unverified", []
+              if status == "pass":
+                  if instances[0].get("problems") not in (None, []):
+                      return "unverified", []
+                  return "pass", []
+              problems = instances[0].get("problems")
+              if not isinstance(problems, list) or not problems:
+                  return "unverified", []
+              messages = []
+              for problem in problems:
+                  if not isinstance(problem, dict):
+                      return "unverified", []
+                  message = problem.get("message")
+                  if not isinstance(message, str) or not message.strip():
+                      return "unverified", []
+                  messages.append(message)
+              return "fail", messages
+
+          def inventory_enumeration(plan):
+              if os.environ.get("TF_VAR_github_is_organization") != "true":
+                  return "skipped"
+              owner = os.environ.get("TF_VAR_github_owner", "")
+              try:
+                  resources = plan["prior_state"]["values"]["root_module"]["resources"]
+              except (KeyError, TypeError):
+                  return "unverified"
+              if not isinstance(resources, list):
+                  return "unverified"
+
+              def rows(name):
+                  return [
+                      row for row in resources
+                      if isinstance(row, dict)
+                      and row.get("mode") == "data"
+                      and row.get("type") == "github_repositories"
+                      and row.get("name") == name
+                      and row.get("index") == owner
+                  ]
+
+              owner_rows = rows("owner")
+              public_rows = rows("public")
+              if len(owner_rows) != 1 or len(public_rows) != 1:
+                  return "unverified"
+              owner_values = owner_rows[0].get("values")
+              public_values = public_rows[0].get("values")
+              if not isinstance(owner_values, dict) or not isinstance(public_values, dict):
+                  return "unverified"
+              owner_names = owner_values.get("names")
+              public_names = public_values.get("names")
+              if (
+                  not isinstance(owner_names, list)
+                  or not isinstance(public_names, list)
+                  or not all(isinstance(name, str) for name in owner_names)
+                  or not all(isinstance(name, str) for name in public_names)
+              ):
+                  return "unverified"
+              owner_set = set(owner_names)
+              public_set = set(public_names)
+              if (
+                  len(owner_names) != len(owner_set)
+                  or len(public_names) != len(public_set)
+                  or not public_set.issubset(owner_set)
+              ):
+                  return "unverified"
+              try:
+                  metadata_status = open(
+                      "inventory-metadata.status", encoding="utf-8"
+                  ).read().strip()
+                  with open("inventory-metadata.json", encoding="utf-8") as fh:
+                      metadata = json.load(fh)
+              except (OSError, UnicodeError, json.JSONDecodeError):
+                  return "unverified"
+              if metadata_status != "ok" or not isinstance(metadata, dict):
+                  return "unverified"
+              public_repos = metadata.get("public_repos")
+              private_repos = metadata.get("total_private_repos")
+              if (
+                  type(public_repos) is not int
+                  or type(private_repos) is not int
+                  or public_repos < 0
+                  or private_repos < 0
+              ):
+                  return "unverified"
+              owner_total = public_repos + private_repos
+              if owner_total >= 1000:
+                  return "unverified"
+              if len(owner_set) != owner_total or len(public_set) != public_repos:
+                  return "unverified"
+              return "pass"
+
           with open("plan.json", encoding="utf-8") as fh:
               plan = json.load(fh)
           rows, tally = [], Counter()
@@ -775,30 +1062,53 @@ jobs:
               tally[act] += 1
               classes[classification] += 1
               rows.append((rc.get("address", "?"), classification, act))
-          if rows:
+
+          check_messages = []
+          inventory_undeclared = False
+          inventory_unverified = False
+          if os.environ.get("TF_VAR_github_is_organization") == "true":
+              check_status, check_messages = inventory_check(plan)
+              enumeration_status = inventory_enumeration(plan)
+              inventory_undeclared = check_status == "fail"
+              inventory_unverified = (
+                  check_status == "unverified" or enumeration_status == "unverified"
+              )
+
+          if rows or inventory_undeclared or inventory_unverified:
               if classes["DRIFT / live-mismatch"]:
                   print("DRIFT / live-mismatch: the live configuration no longer matches what Terraform declares.")
               if classes["INDETERMINATE / state-binding-missing"]:
                   print("INDETERMINATE / state-binding-missing: Terraform has a desired resource with no canonical state binding; its live status is unproven.")
-              print()
-              print("| count | action |")
-              print("|---|---|")
-              for act, n in sorted(tally.items(), key=lambda kv: -kv[1]):
-                  print(f"| {n} | `{act}` |")
-              print()
-              print("| resource | class | action |")
-              print("|---|---|---|")
-              for addr, classification, act in sorted(rows):
-                  print(f"| `{addr}` | {classification} | `{act}` |")
-              print()
-              if classes["DRIFT / live-mismatch"]:
-                  print("A `delete`, `update`, or replacement here means live GitHub no longer")
-                  print("matches the declared configuration. Re-applying restores the declaration.")
-              if classes["INDETERMINATE / state-binding-missing"]:
-                  print("A `create` here is a state-binding gap, not proof that the live object is absent.")
+              if not rows:
+                  print("No actionable Terraform resource changes.")
+              else:
+                  print()
+                  print("| count | action |")
+                  print("|---|---|")
+                  for act, n in sorted(tally.items(), key=lambda kv: -kv[1]):
+                      print(f"| {n} | `{act}` |")
+                  print()
+                  print("| resource | class | action |")
+                  print("|---|---|---|")
+                  for addr, classification, act in sorted(rows):
+                      print(f"| `{addr}` | {classification} | `{act}` |")
+                  print()
+                  if classes["DRIFT / live-mismatch"]:
+                      print("A `delete`, `update`, or replacement here means live GitHub no longer")
+                      print("matches the declared configuration. Re-applying restores the declaration.")
+                  if classes["INDETERMINATE / state-binding-missing"]:
+                      print("A `create` here is a state-binding gap, not proof that the live object is absent.")
+              if inventory_undeclared:
+                  print()
+                  print("INVENTORY / undeclared-live:")
+                  for message in check_messages:
+                      print(message)
+              if inventory_unverified:
+                  print()
+                  print(f"INVENTORY / enumeration-unverified: {INVENTORY_UNVERIFIED}")
           PY
 
-          TITLE="Terraform drift or state-binding gap detected"
+          TITLE="Configuration drift or state-binding gap detected"
           EXISTING="$(gh issue list --repo "$REPO" --state open --label terraform-drift \
                         --json number --jq '.[0].number // empty')"
 
@@ -807,7 +1117,7 @@ jobs:
             # the next genuine alert arrives on an already-open thread nobody reads.
             if [ -n "$EXISTING" ]; then
               gh issue comment "$EXISTING" --repo "$REPO" \
-                --body "Resolved — the plan is empty again as of [this run]($RUN_URL)."
+                --body "Resolved — Terraform resource changes and inventory findings are empty as of [this run]($RUN_URL)."
               gh issue close "$EXISTING" --repo "$REPO"
               echo "drift resolved; closed #$EXISTING"
             else
@@ -820,7 +1130,7 @@ jobs:
 
           # Keep the canonical label truthful even when an existing issue is edited.
           gh label create terraform-drift --repo "$REPO" \
-            --description "Non-empty Terraform plan or missing state binding" \
+            --description "Actionable Terraform or provider-gap drift, declaration errors, or missing state bindings" \
             --color B60205 --force
 
           if [ -n "$EXISTING" ]; then

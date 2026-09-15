@@ -11,6 +11,7 @@ output:
 sections:
   show:
     - resources
+    - data-sources
     - inputs
     - outputs
 

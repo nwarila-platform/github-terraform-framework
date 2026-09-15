@@ -129,7 +129,27 @@ terraform test
 | CO5 | Org mode with no default retains the ruleset precondition guard | ✅ | `preconditions.tftest.hcl::rejects_org_mode_codeowners_required_but_missing` |
 | CO6 | Empty personal default synthesizes; whitespace org default triggers the guard | ✅ | `normalization.tftest.hcl::personal_mode_empty_codeowners_default_synthesizes` + `normalization.tftest.hcl::org_mode_whitespace_codeowners_default_is_rejected` |
 
-**Normalization coverage: 16 / 16 ≈ 100%.**
+**Normalization coverage: 23 / 23 ≈ 100%.**
+
+## Inventory completeness
+
+| # | Path | Status | Test |
+|---|---|---|---|
+| I01 | Organization mode selects exactly one owner/public search pair | ✅ | `inventory.tftest.hcl::complete_organization_inventory_passes` |
+| I02 | Personal mode selects neither organization inventory search | ✅ | `inventory.tftest.hcl::personal_mode_skips_inventory_searches` |
+| I03 | Complete live/declared set passes `check.inventory_complete` | ✅ | `inventory.tftest.hcl::complete_organization_inventory_passes` |
+| I04 | Public undeclared repository fails the advisory check | ✅ | `inventory.tftest.hcl::public_undeclared_repository_fails` |
+| I05 | Public undeclared name is disclosed only through the HCL-redacted check message | ✅ | `inventory.tftest.hcl::public_undeclared_repository_fails` + `test_detector_mode.py` |
+| I06 | Non-public undeclared name is replaced by a count before Terraform stderr | ✅ | `inventory.tftest.hcl::non_public_undeclared_repository_is_redacted` + verbose `test_detector_mode.py` proof |
+| I07 | Missing, malformed, duplicate, unsupported, or inconsistent check result is enumeration-unverified | ✅ | `test_detector_mode.py::test_malformed_missing_duplicate_and_unsupported_checks_fail_closed` |
+| I08 | Missing/duplicate data rows, duplicate names, and public-not-subset results are enumeration-unverified | ✅ | `test_detector_mode.py::test_invalid_search_rows_fail_closed_without_rendering_names` |
+| I09 | Metadata GET/body/integer/count failures are enumeration-unverified | ✅ | `test_detector_mode.py` metadata failure and count mismatch fixtures |
+| I10 | 999 repositories remain supported; 1,000 is enumeration-unverified | ✅ | `test_detector_mode.py::test_metadata_count_mismatch_and_search_ceiling_fail_closed` |
+| I11 | Inventory classification is confined to organization detector mode | ✅ | `test_detector_mode.py` v5 non-detector and personal-detector mode-boundary fixtures |
+| I12 | Metadata GET receives one `--max-time 30`; timeout is enumeration-unverified and reaches the issue writer | ✅ | `test_detector_mode.py::test_metadata_timeout_has_exact_argv_and_reaches_both_projections` |
+
+**Inventory completeness coverage: 12 / 12 ≈ 100%.**
+
 ## `for_each` filter regressions
 
 | # | Filter | Status | Test |
@@ -169,19 +189,20 @@ terraform test
 | Global validation | 39 | 39 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 17 | 17 | 100% |
+| Normalization paths | 23 | 23 | 100% |
+| Inventory completeness | 12 | 12 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **83** | **83** | **100%** |
+| **Overall** | **101** | **101** | **100%** |
 
 ## Test run count and artifacts
 
 | Metric | Count |
 |---|---|
-| `.tftest.hcl` files | 4 |
-| `run` blocks total | 55 |
-| Fixture directories | 31 |
-| Assertions total | 76 |
+| `.tftest.hcl` files | 8 |
+| `run` blocks total | 97 |
+| Fixture directories | 37 |
+| Assertions total | 123 |
 
 ## Explicitly NOT tested (by design)
 
@@ -212,6 +233,6 @@ No Codecov. No LCOV. No equivalent for Terraform code. This matrix is the tool. 
 | `terraform-google-modules/network` | ~20 | Fixture-driven + integration |
 | Gruntwork modules | Few `tftest`, heavy terratest | Integration-first |
 | OpenTofu's own test suite | ~50 | Feature coverage |
-| **This framework** | **~55** | **Fixture + coverage-matrix driven** |
+| **This framework** | **97** | **Fixture + coverage-matrix driven** |
 
 We're at the upper end of community practice without crossing into overengineering.

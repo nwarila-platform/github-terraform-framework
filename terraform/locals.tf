@@ -1124,6 +1124,26 @@ locals {
 
 }
 
+locals {
+  org_lookup                     = var.github_is_organization ? toset([var.github_owner]) : toset([])
+  live_repos                     = toset(flatten([for r in data.github_repositories.owner : r.names]))
+  live_public_repos              = toset(flatten([for r in data.github_repositories.public : r.names]))
+  undeclared_repos               = setsubtract(local.live_repos, toset(keys(local.all_repositories)))
+  reportable_undeclared_repos    = setintersection(local.undeclared_repos, local.live_public_repos)
+  redacted_undeclared_repo_count = length(setsubtract(local.undeclared_repos, local.reportable_undeclared_repos))
+}
+
+check "inventory_complete" {
+  assert {
+    condition = length(local.undeclared_repos) == 0
+    error_message = join("\n", concat(
+      ["Live repositories not declared in the inventory:"],
+      sort(tolist(local.reportable_undeclared_repos)),
+      local.redacted_undeclared_repo_count == 0 ? [] : ["<${local.redacted_undeclared_repo_count} non-public repositories redacted>"],
+    ))
+  }
+}
+
 #% ========================================================================================== %#
 #% Input validation layering:                                                                  %#
 #%                                                                                             %#
@@ -1136,9 +1156,11 @@ locals {
 #%     as lifecycle.precondition blocks on the relevant resources, so Terraform's error       %#
 #%     messages point at specific resource addresses.                                          %#
 #%                                                                                             %#
-#%   One intentional advisory-mode exception: check.security_baseline_preview emits a         %#
-#%     warning listing capability gaps when security_baseline_mode='compatibility'. It is     %#
-#%     a preview for the strict-mode flip, not an enforcement point. See plan Finding 6.      %#
+#%   Two intentional advisory-mode exceptions, both warnings rather than enforcement:         %#
+#%     check.security_baseline_preview lists capability gaps when                             %#
+#%     security_baseline_mode='compatibility' (a preview for the strict-mode flip; see plan   %#
+#%     Finding 6), and check.inventory_complete lists live repositories missing from the      %#
+#%     inventory (public names only; non-public repositories are counted, never named).       %#
 #% ========================================================================================== %#
 
 check "security_baseline_preview" {
