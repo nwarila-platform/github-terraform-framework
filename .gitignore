@@ -28,12 +28,6 @@
 # Keep Terraform module files.
 !/terraform/
 !/terraform/.terraform.lock.hcl
-!/terraform/00-providers.tf
-!/terraform/01-providers-github.tf
-!/terraform/11-variables.github.tf
-!/terraform/30-locals.tf
-!/terraform/41-resources-github.tf
-!/terraform/60-outputs-github.tf
 
 # Keep repo definition directories (consumer adds YAMLs here).
 !/terraform/repos/
@@ -195,10 +189,13 @@
 !/tools/check_docs_layout.py
 !/tools/test_assemble_guard.sh
 !/tools/test_destroy_guard.py
+!/tools/test_detector_mode.py
 
 # Contract files (seeded by seed_consumer.py)
+!/terraform/backend.tf
 !/terraform/locals.tf
 !/terraform/outputs.tf
+!/terraform/providers.tf
 !/terraform/resources.tf
 !/terraform/variables.tf
 !/terraform/versions.tf
