@@ -41,6 +41,7 @@
 !/terraform/tests/COVERAGE.md
 !/terraform/tests/capability_defaults.tftest.hcl
 !/terraform/tests/forking.tftest.hcl
+!/terraform/tests/inventory.tftest.hcl
 !/terraform/tests/normalization.tftest.hcl
 !/terraform/tests/preconditions.tftest.hcl
 !/terraform/tests/security.tftest.hcl
@@ -193,6 +194,7 @@
 
 # Contract files (seeded by seed_consumer.py)
 !/terraform/backend.tf
+!/terraform/data.tf
 !/terraform/locals.tf
 !/terraform/outputs.tf
 !/terraform/providers.tf

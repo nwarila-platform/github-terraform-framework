@@ -1124,6 +1124,26 @@ locals {
 
 }
 
+locals {
+  org_lookup                     = var.github_is_organization ? toset([var.github_owner]) : toset([])
+  live_repos                     = toset(flatten([for r in data.github_repositories.owner : r.names]))
+  live_public_repos              = toset(flatten([for r in data.github_repositories.public : r.names]))
+  undeclared_repos               = setsubtract(local.live_repos, toset(keys(local.all_repositories)))
+  reportable_undeclared_repos    = setintersection(local.undeclared_repos, local.live_public_repos)
+  redacted_undeclared_repo_count = length(setsubtract(local.undeclared_repos, local.reportable_undeclared_repos))
+}
+
+check "inventory_complete" {
+  assert {
+    condition = length(local.undeclared_repos) == 0
+    error_message = join("\n", concat(
+      ["Live repositories not declared in the inventory:"],
+      sort(tolist(local.reportable_undeclared_repos)),
+      local.redacted_undeclared_repo_count == 0 ? [] : ["<${local.redacted_undeclared_repo_count} non-public repositories redacted>"],
+    ))
+  }
+}
+
 #% ========================================================================================== %#
 #% Input validation layering:                                                                  %#
 #%                                                                                             %#

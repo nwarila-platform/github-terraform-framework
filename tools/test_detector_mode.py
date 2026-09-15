@@ -28,10 +28,20 @@ VERSIONS = ROOT / "terraform" / "versions.tf"
 RESOURCES = ROOT / "terraform" / "resources.tf"
 WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
 
-TITLE = "Terraform drift or state-binding gap detected"
-LABEL_DESCRIPTION = "Non-empty Terraform plan or missing state binding"
+TITLE = "Configuration drift or state-binding gap detected"
+LABEL_DESCRIPTION = (
+    "Actionable Terraform or provider-gap drift, declaration errors, "
+    "or missing state bindings"
+)
 INDETERMINATE = "INDETERMINATE / state-binding-missing"
 DRIFT = "DRIFT / live-mismatch"
+INVENTORY_UNDECLARED = "INVENTORY / undeclared-live"
+INVENTORY_UNVERIFIED = "INVENTORY / enumeration-unverified"
+INVENTORY_OWNER = "test-owner"
+NON_PUBLIC_SENTINEL = "owner-only-sensitive-sentinel-7f3"
+TOKEN_SENTINEL = "token-sensitive-sentinel-7f3"
+RAW_BODY_SENTINEL = "raw-metadata-body-sentinel-7f3"
+RAW_PLAN_SENTINEL = "raw-plan-fragment-sentinel-7f3"
 
 
 def step_block(name: str) -> str:
@@ -97,6 +107,40 @@ def change(address: str, actions: list[str], resource_type: str = "github_reposi
         "address": address,
         "type": resource_type,
         "change": {"actions": actions, "before": before or {}},
+    }
+
+
+def inventory_check(status: str = "pass", message: str | None = None) -> dict:
+    instance = {
+        "address": {"to_display": "check.inventory_complete"},
+        "status": status,
+    }
+    if status == "fail":
+        instance["problems"] = [
+            {
+                "message": message
+                or "Live repositories not declared in the inventory:\npublic-inventory-canary"
+            }
+        ]
+    return {
+        "address": {
+            "kind": "check",
+            "name": "inventory_complete",
+            "to_display": "check.inventory_complete",
+        },
+        "status": status,
+        "instances": [instance],
+    }
+
+
+def inventory_data_row(name: str, names: list[str]) -> dict:
+    return {
+        "address": f'data.github_repositories.{name}["{INVENTORY_OWNER}"]',
+        "mode": "data",
+        "type": "github_repositories",
+        "name": name,
+        "index": INVENTORY_OWNER,
+        "values": {"names": names},
     }
 
 
@@ -321,11 +365,45 @@ terraform() {{ "{sys.executable}" "$TERRAFORM_STUB" "$@"; }}
                     self.assertNotEqual(proc.returncode, 0)
 
 
+class InventoryVerboseRedactionTests(unittest.TestCase):
+    def test_expected_check_warning_redacts_owner_only_name_on_both_streams(self):
+        env = os.environ.copy()
+        for key in (
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GITHUB_OWNER",
+            "GITHUB_ORGANIZATION",
+            "TF_VAR_github_token",
+            "TF_CLI_ARGS",
+            "TF_CLI_ARGS_test",
+        ):
+            env.pop(key, None)
+        proc = subprocess.run(
+            [
+                "terraform",
+                "test",
+                "-filter=tests/inventory.tftest.hcl",
+                "-verbose",
+                "-no-color",
+            ],
+            cwd=ROOT / "terraform",
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, "credential-free inventory test failed")
+        combined = proc.stdout + proc.stderr
+        self.assertIn("<1 non-public repositories redacted>", combined)
+        self.assertNotIn(NON_PUBLIC_SENTINEL, proc.stdout)
+        self.assertNotIn(NON_PUBLIC_SENTINEL, proc.stderr)
+
+
 class ReporterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.reporter = step_run("Report drift as an issue")
         cls.guard = step_run("Guard repository destroys")
+        cls.summary = step_run("Publish sanitized plan summary to job summary")
 
     def run_reporter(self, changes: list[dict], *, existing: str = "",
                      resource_drift: list[dict] | None = None) -> tuple[list[dict], str]:
@@ -336,6 +414,8 @@ class ReporterTests(unittest.TestCase):
                     {
                         "resource_changes": changes,
                         "resource_drift": resource_drift or [],
+                        "checks": [inventory_check()],
+                        "raw_plan_marker": RAW_PLAN_SENTINEL,
                     }
                 ),
                 encoding="utf-8",
@@ -366,6 +446,8 @@ if args[:2] == ["issue", "list"] and os.environ.get("EXISTING_ISSUE"):
                     "GH_TOKEN": "stub-token",
                     "REPO": "example/caller",
                     "RUN_URL": "https://example.invalid/actions/runs/1",
+                    "TF_VAR_github_is_organization": "false",
+                    "TF_VAR_github_owner": INVENTORY_OWNER,
                 }
             )
             wrapped = f"""
@@ -382,6 +464,147 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 if gh_log.exists() else []
             )
             return records, proc.stdout
+
+    def run_inventory_projections(
+        self,
+        *,
+        checks: list[object] | None = None,
+        owner_names: list[str] | None = None,
+        public_names: list[str] | None = None,
+        metadata: dict | str | None = None,
+        curl_mode: str = "ok",
+        changes: list[dict] | None = None,
+        existing: str = "",
+        prior_resources: list[object] | None = None,
+        is_organization: bool = True,
+    ) -> tuple[list[dict], str, str, int]:
+        owner_names = owner_names if owner_names is not None else ["declared-public"]
+        public_names = public_names if public_names is not None else ["declared-public"]
+        if prior_resources is None:
+            prior_resources = [
+                inventory_data_row("owner", owner_names),
+                inventory_data_row("public", public_names),
+            ]
+        if metadata is None:
+            metadata = {
+                "public_repos": len(set(public_names)),
+                "total_private_repos": len(set(owner_names)) - len(set(public_names)),
+            }
+        metadata_body = metadata if isinstance(metadata, str) else json.dumps(metadata)
+        plan = {
+            "resource_changes": changes or [],
+            "resource_drift": [],
+            "checks": checks if checks is not None else [inventory_check()],
+            "prior_state": {"values": {"root_module": {"resources": prior_resources}}},
+            "raw_plan_marker": RAW_PLAN_SENTINEL,
+        }
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = Path(raw_tmp)
+            (tmp / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+            summary_file = tmp / "summary.md"
+            gh_log = tmp / "gh.jsonl"
+            curl_log = tmp / "curl.log"
+
+            curl_stub = tmp / "curl_stub.py"
+            curl_stub.write_text(
+                """
+import os, sys
+from pathlib import Path
+with open(os.environ["CURL_LOG"], "a", encoding="utf-8") as fh:
+    fh.write("GET\\n")
+if os.environ["CURL_MODE"] == "fail":
+    raise SystemExit(22)
+args = sys.argv[1:]
+output = args[args.index("--output") + 1]
+Path(output).write_text(os.environ["METADATA_BODY"], encoding="utf-8")
+""",
+                encoding="utf-8",
+            )
+            gh_stub = tmp / "gh_stub.py"
+            gh_stub.write_text(
+                """
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+record = {"args": args}
+if "--body-file" in args:
+    record["body"] = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
+with open(os.environ["GH_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(record) + "\\n")
+if args[:2] == ["issue", "list"] and os.environ.get("EXISTING_ISSUE"):
+    print(os.environ["EXISTING_ISSUE"])
+""",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "CURL_LOG": str(curl_log),
+                    "CURL_MODE": curl_mode,
+                    "CURL_STUB": str(curl_stub),
+                    "METADATA_BODY": metadata_body,
+                    "GH_LOG": str(gh_log),
+                    "GH_STUB": str(gh_stub),
+                    "EXISTING_ISSUE": existing,
+                    "GITHUB_STEP_SUMMARY": str(summary_file),
+                    "GH_TOKEN": "actions-issue-token-sentinel-7f3",
+                    "REPO": "example/caller",
+                    "RUN_URL": "https://example.invalid/actions/runs/1",
+                    "DETECTOR_MODE": "true",
+                    "TF_VAR_github_is_organization": (
+                        "true" if is_organization else "false"
+                    ),
+                    "TF_VAR_github_owner": INVENTORY_OWNER,
+                    "TF_VAR_github_token": TOKEN_SENTINEL,
+                }
+            )
+            summary_wrapped = f"""
+curl() {{ "{sys.executable}" "$CURL_STUB" "$@"; }}
+{self.summary}
+"""
+            summary_proc = subprocess.run(
+                ["bash", "-c", summary_wrapped],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(summary_proc.returncode, 0, "summary projection failed")
+
+            reporter_wrapped = f"""
+gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
+{self.reporter}
+"""
+            reporter_proc = subprocess.run(
+                ["bash", "-c", reporter_wrapped],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(reporter_proc.returncode, 0, "reporter projection failed")
+
+            records = (
+                [json.loads(line) for line in gh_log.read_text().splitlines()]
+                if gh_log.exists() else []
+            )
+            summary = summary_file.read_text(encoding="utf-8")
+            issue_bodies = "\n".join(
+                record.get("body", "") for record in records
+            )
+            surfaces = "\n".join(
+                (
+                    summary_proc.stdout,
+                    summary_proc.stderr,
+                    reporter_proc.stdout,
+                    reporter_proc.stderr,
+                    summary,
+                    issue_bodies,
+                )
+            )
+            curl_calls = len(curl_log.read_text().splitlines()) if curl_log.exists() else 0
+            return records, summary, surfaces, curl_calls
 
     @staticmethod
     def command(records: list[dict], *prefix: str) -> dict:
@@ -403,7 +626,13 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         self.assertEqual(issue["args"][issue["args"].index("--title") + 1], TITLE)
         for classification in expected_classes:
             self.assertIn(classification, issue["body"])
-        for classification in {INDETERMINATE, DRIFT} - expected_classes:
+        all_classes = {
+            INDETERMINATE,
+            DRIFT,
+            INVENTORY_UNDECLARED,
+            INVENTORY_UNVERIFIED,
+        }
+        for classification in all_classes - expected_classes:
             self.assertNotIn(classification, issue["body"])
         label_index = records.index(label)
         issue_index = records.index(issue)
@@ -465,6 +694,279 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         records, output = self.run_reporter([])
         self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
         self.assertIn("no drift", output)
+
+    def test_inventory_only_public_name_reaches_both_safe_projections(self):
+        public_name = "public-inventory-canary"
+        message = f"Live repositories not declared in the inventory:\n{public_name}"
+        records, summary, surfaces, curl_calls = self.run_inventory_projections(
+            checks=[inventory_check("fail", message)],
+            owner_names=["declared-public", public_name],
+            public_names=["declared-public", public_name],
+            metadata={
+                "public_repos": 2,
+                "total_private_repos": 0,
+                "raw": RAW_BODY_SENTINEL,
+            },
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertEqual(curl_calls, 1)
+        self.assertIn(INVENTORY_UNDECLARED, summary)
+        self.assertIn(INVENTORY_UNDECLARED, issue["body"])
+        self.assertIn(public_name, summary)
+        self.assertIn(public_name, issue["body"])
+        self.assertEqual(summary.count(public_name), 1)
+        self.assertEqual(issue["body"].count(public_name), 1)
+        self.assertIn("No actionable Terraform resource changes", summary)
+        self.assertIn("No actionable Terraform resource changes", issue["body"])
+        self.assertNotIn("Infrastructure matches", surfaces)
+        for secret in (
+            NON_PUBLIC_SENTINEL,
+            TOKEN_SENTINEL,
+            RAW_BODY_SENTINEL,
+            RAW_PLAN_SENTINEL,
+            json.dumps(["declared-public", public_name]),
+        ):
+            self.assertNotIn(secret, surfaces)
+
+    def test_terraform_only_and_mixed_findings_reach_both_projections(self):
+        changed = change('github_repository.repo["changed"]', ["update"])
+        records, summary, _, _ = self.run_inventory_projections(changes=[changed])
+        issue = self.command(records, "issue", "create")
+        self.assertIn('github_repository.repo["changed"]', summary)
+        self.assertIn(DRIFT, issue["body"])
+        self.assertNotIn(INVENTORY_UNDECLARED, issue["body"])
+        self.assertNotIn(INVENTORY_UNVERIFIED, issue["body"])
+
+        public_name = "public-inventory-canary"
+        message = f"Live repositories not declared in the inventory:\n{public_name}"
+        records, summary, _, _ = self.run_inventory_projections(
+            checks=[inventory_check("fail", message)],
+            owner_names=["declared-public", public_name],
+            public_names=["declared-public", public_name],
+            changes=[changed],
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertIn('github_repository.repo["changed"]', summary)
+        self.assertIn(INVENTORY_UNDECLARED, summary)
+        self.assertIn(DRIFT, issue["body"])
+        self.assertIn(INVENTORY_UNDECLARED, issue["body"])
+
+    def test_inventory_recovery_closes_only_when_both_planes_are_empty(self):
+        records, summary, _, curl_calls = self.run_inventory_projections(existing="42")
+        self.assertEqual(curl_calls, 1)
+        self.assertIn("No actionable Terraform resource changes", summary)
+        self.assertIn("No actionable inventory findings", summary)
+        comment = self.command(records, "issue", "comment")
+        self.assertIn(
+            "Terraform resource changes and inventory findings are empty",
+            " ".join(comment["args"]),
+        )
+        self.command(records, "issue", "close")
+        self.assertFalse(
+            any(record["args"][:2] == ["label", "create"] for record in records)
+        )
+
+    def test_non_public_inventory_name_is_redacted_on_every_surface(self):
+        message = (
+            "Live repositories not declared in the inventory:\n"
+            "<1 non-public repositories redacted>"
+        )
+        records, summary, surfaces, curl_calls = self.run_inventory_projections(
+            checks=[inventory_check("fail", message)],
+            owner_names=["declared-public", NON_PUBLIC_SENTINEL],
+            public_names=["declared-public"],
+            metadata={"public_repos": 1, "total_private_repos": 1},
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertEqual(curl_calls, 1)
+        self.assertIn("<1 non-public repositories redacted>", summary)
+        self.assertIn("<1 non-public repositories redacted>", issue["body"])
+        self.assertNotIn(NON_PUBLIC_SENTINEL, surfaces)
+        self.assertNotIn(TOKEN_SENTINEL, surfaces)
+        self.assertNotIn(RAW_PLAN_SENTINEL, surfaces)
+
+    def test_metadata_get_and_body_failures_are_enumeration_unverified(self):
+        cases = {
+            "get-failure": {"curl_mode": "fail"},
+            "malformed-json": {
+                "metadata": f'{{"marker":"{RAW_BODY_SENTINEL}"',
+            },
+            "non-integer": {
+                "metadata": {"public_repos": True, "total_private_repos": 0},
+            },
+            "negative": {
+                "metadata": {"public_repos": -1, "total_private_repos": 2},
+            },
+        }
+        for label, kwargs in cases.items():
+            with self.subTest(case=label):
+                records, summary, surfaces, curl_calls = self.run_inventory_projections(
+                    **kwargs
+                )
+                issue = self.command(records, "issue", "create")
+                self.assertEqual(curl_calls, 1)
+                self.assertIn(INVENTORY_UNVERIFIED, summary)
+                self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+                self.assertNotIn(RAW_BODY_SENTINEL, surfaces)
+                self.assertNotIn(TOKEN_SENTINEL, surfaces)
+                self.assertNotIn(RAW_PLAN_SENTINEL, surfaces)
+
+    def test_invalid_search_rows_fail_closed_without_rendering_names(self):
+        duplicate_owner = [
+            inventory_data_row("owner", ["declared-public", NON_PUBLIC_SENTINEL,
+                                          NON_PUBLIC_SENTINEL]),
+            inventory_data_row("public", ["declared-public"]),
+        ]
+        duplicate_public = [
+            inventory_data_row("owner", ["declared-public"]),
+            inventory_data_row("public", ["declared-public", "declared-public"]),
+        ]
+        bad_subset = [
+            inventory_data_row("owner", ["declared-public", NON_PUBLIC_SENTINEL]),
+            inventory_data_row("public", ["public-absent-from-owner"]),
+        ]
+        missing_owner = [inventory_data_row("public", ["declared-public"])]
+        missing_public = [inventory_data_row("owner", ["declared-public"])]
+        duplicate_owner_rows = [
+            inventory_data_row("owner", ["declared-public"]),
+            inventory_data_row("owner", ["declared-public"]),
+            inventory_data_row("public", ["declared-public"]),
+        ]
+        duplicate_public_rows = [
+            inventory_data_row("owner", ["declared-public"]),
+            inventory_data_row("public", ["declared-public"]),
+            inventory_data_row("public", ["declared-public"]),
+        ]
+        non_string_name = [
+            inventory_data_row("owner", ["declared-public", 7]),
+            inventory_data_row("public", ["declared-public"]),
+        ]
+        missing_names = [
+            inventory_data_row("owner", ["declared-public"]),
+            {
+                "mode": "data",
+                "type": "github_repositories",
+                "name": "public",
+                "index": INVENTORY_OWNER,
+                "values": {},
+            },
+        ]
+        cases = {
+            "duplicate-owner-name": duplicate_owner,
+            "duplicate-public-name": duplicate_public,
+            "public-not-subset": bad_subset,
+            "missing-owner-row": missing_owner,
+            "missing-public-row": missing_public,
+            "duplicate-owner-row": duplicate_owner_rows,
+            "duplicate-public-row": duplicate_public_rows,
+            "non-string-name": non_string_name,
+            "missing-names": missing_names,
+        }
+        for label, rows in cases.items():
+            with self.subTest(case=label):
+                records, summary, surfaces, _ = self.run_inventory_projections(
+                    prior_resources=rows,
+                    metadata={"public_repos": 1, "total_private_repos": 1},
+                )
+                issue = self.command(records, "issue", "create")
+                self.assertIn(INVENTORY_UNVERIFIED, summary)
+                self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+                for secret in (
+                    NON_PUBLIC_SENTINEL,
+                    "public-absent-from-owner",
+                    TOKEN_SENTINEL,
+                    RAW_PLAN_SENTINEL,
+                ):
+                    self.assertNotIn(secret, surfaces)
+
+    def test_metadata_count_mismatch_and_search_ceiling_fail_closed(self):
+        records, summary, _, _ = self.run_inventory_projections(
+            metadata={"public_repos": 1, "total_private_repos": 1}
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertIn(INVENTORY_UNVERIFIED, summary)
+        self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+
+        names_999 = [f"repo-{number:04d}" for number in range(999)]
+        records, summary, surfaces, _ = self.run_inventory_projections(
+            owner_names=names_999,
+            public_names=names_999,
+            metadata={"public_repos": 999, "total_private_repos": 0},
+        )
+        self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
+        self.assertIn("No actionable inventory findings", summary)
+        self.assertNotIn(INVENTORY_UNVERIFIED, surfaces)
+
+        names_1000 = [f"repo-{number:04d}" for number in range(1000)]
+        records, summary, _, _ = self.run_inventory_projections(
+            owner_names=names_1000,
+            public_names=names_1000,
+            metadata={"public_repos": 1000, "total_private_repos": 0},
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertIn(INVENTORY_UNVERIFIED, summary)
+        self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+
+    def test_malformed_missing_duplicate_and_unsupported_checks_fail_closed(self):
+        unknown = inventory_check()
+        unknown["status"] = "unknown"
+        unknown["instances"][0]["status"] = "unknown"
+        unsupported = inventory_check()
+        unsupported["status"] = "pending"
+        unsupported["instances"][0]["status"] = "pending"
+        inconsistent = inventory_check("fail")
+        inconsistent["instances"][0]["status"] = "pass"
+        missing_message = inventory_check("fail")
+        missing_message["instances"][0]["problems"] = [{}]
+        non_string_message = inventory_check("fail")
+        non_string_message["instances"][0]["problems"] = [{"message": 7}]
+        pass_with_problem = inventory_check()
+        pass_with_problem["instances"][0]["problems"] = [
+            {"message": "unexpected pass problem"}
+        ]
+        malformed = inventory_check()
+        malformed["address"] = "check.inventory_complete"
+        cases = {
+            "missing": [],
+            "duplicate": [inventory_check(), inventory_check()],
+            "malformed": [malformed],
+            "unknown": [unknown],
+            "unsupported": [unsupported],
+            "inconsistent": [inconsistent],
+            "missing-message": [missing_message],
+            "non-string-message": [non_string_message],
+            "pass-with-problem": [pass_with_problem],
+        }
+        for label, checks in cases.items():
+            with self.subTest(case=label):
+                records, summary, surfaces, _ = self.run_inventory_projections(
+                    checks=checks
+                )
+                issue = self.command(records, "issue", "create")
+                self.assertIn(INVENTORY_UNVERIFIED, summary)
+                self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+                self.assertNotIn(RAW_PLAN_SENTINEL, surfaces)
+                self.assertNotIn(TOKEN_SENTINEL, surfaces)
+
+    def test_inventory_metadata_request_is_one_read_only_get_with_terraform_pat(self):
+        summary = self.summary
+        self.assertIn("curl --request GET", summary)
+        self.assertIn("Authorization: Bearer ${TF_VAR_github_token}", summary)
+        self.assertIn("https://api.github.com/orgs/${TF_VAR_github_owner}", summary)
+        self.assertNotIn("GH_TOKEN=", summary)
+        self.assertIn(
+            "GH_TOKEN: ${{ github.token }}",
+            step_block("Report drift as an issue"),
+        )
+
+        records, rendered, surfaces, curl_calls = self.run_inventory_projections(
+            prior_resources=[],
+            is_organization=False,
+        )
+        self.assertEqual(curl_calls, 0)
+        self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
+        self.assertIn("No actionable inventory findings", rendered)
+        self.assertNotIn(INVENTORY_UNVERIFIED, surfaces)
 
     def test_refused_delete_still_reaches_reporter_in_detector_mode(self):
         refused = change(

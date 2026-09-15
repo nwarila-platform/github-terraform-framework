@@ -21,6 +21,8 @@ is current. Framework PR workflows do not run that check today; only consumers d
 | [github_repository_ruleset.branch](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/resources/repository_ruleset) | resource |
 | [terraform_data.framework_validation](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [time_sleep.after_branch_default](https://registry.terraform.io/providers/hashicorp/time/0.12.1/docs/resources/sleep) | resource |
+| [github_repositories.owner](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/data-sources/repositories) | data source |
+| [github_repositories.public](https://registry.terraform.io/providers/integrations/github/6.12.1/docs/data-sources/repositories) | data source |
 
 ## Inputs
 
