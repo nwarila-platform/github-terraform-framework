@@ -1,0 +1,4 @@
+bad-private-provider-gap:
+  visibility: private
+  provider_gaps:
+    fork_pr_contributor_approval: all_external_contributors

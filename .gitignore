@@ -47,6 +47,7 @@
 !/terraform/tests/security.tftest.hcl
 !/terraform/tests/org_settings.tftest.hcl
 !/terraform/tests/validation.tftest.hcl
+!/terraform/tests/provider_gaps.tftest.hcl
 
 # Keep test fixtures.
 !/terraform/tests/fixtures/
@@ -176,6 +177,20 @@
 !/terraform/tests/fixtures/good-with-environments/
 !/terraform/tests/fixtures/good-with-environments/private/
 !/terraform/tests/fixtures/good-with-environments/private/repo.yml
+!/terraform/tests/fixtures/good-provider-gaps/
+!/terraform/tests/fixtures/good-provider-gaps/public/
+!/terraform/tests/fixtures/good-provider-gaps/public/repos.yml
+!/terraform/tests/fixtures/good-provider-gaps/private/
+!/terraform/tests/fixtures/good-provider-gaps/private/repos.yml
+!/terraform/tests/fixtures/bad-provider-gap-key/
+!/terraform/tests/fixtures/bad-provider-gap-key/public/
+!/terraform/tests/fixtures/bad-provider-gap-key/public/bad.yml
+!/terraform/tests/fixtures/bad-provider-gap-enum/
+!/terraform/tests/fixtures/bad-provider-gap-enum/public/
+!/terraform/tests/fixtures/bad-provider-gap-enum/public/bad.yml
+!/terraform/tests/fixtures/bad-private-provider-gap/
+!/terraform/tests/fixtures/bad-private-provider-gap/private/
+!/terraform/tests/fixtures/bad-private-provider-gap/private/bad.yml
 
 # Documentation directory (Diátaxis layout per ADR-0002).
 !/docs/
@@ -191,6 +206,8 @@
 !/tools/test_assemble_guard.sh
 !/tools/test_destroy_guard.py
 !/tools/test_detector_mode.py
+!/tools/verify_provider_gaps.py
+!/tools/test_verify_provider_gaps.py
 
 # Contract files (seeded by seed_consumer.py)
 !/terraform/backend.tf

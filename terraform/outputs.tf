@@ -26,3 +26,21 @@ output "security_capability_gap_preview" {
   description = "List of capability-gap preview messages."
   value       = local.security_capability_gap_preview
 }
+
+output "provider_gap_desired_state" {
+  description = "Closed desired-state projection consumed by the GET-only provider-gap verifier."
+  value = {
+    schema_version             = 1
+    github_owner               = var.github_owner
+    github_is_organization     = var.github_is_organization
+    organization_provider_gaps = var.provider_gaps
+    repositories = {
+      for name, repository in local.all_repositories : name => {
+        name          = repository.name
+        visibility    = repository.visibility
+        archived      = repository.archived
+        provider_gaps = repository.provider_gaps
+      }
+    }
+  }
+}

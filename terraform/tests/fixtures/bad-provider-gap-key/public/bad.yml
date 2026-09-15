@@ -1,0 +1,11 @@
+bad-provider-gap-key:
+  description: Unknown provider-gap key fixture.
+  visibility: public
+  provider_gaps:
+    fork_pr_contributor_approval: all_external_contributors
+    fork_pr_contributor_aproval: all_external_contributors
+
+bad-provider-gap-type:
+  description: Non-object provider-gap fixture.
+  visibility: public
+  provider_gaps: invalid

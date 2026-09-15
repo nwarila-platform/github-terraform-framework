@@ -1,0 +1,32 @@
+absent:
+  description: Provider-gap absent normalization fixture.
+  visibility: public
+
+empty:
+  description: Provider-gap empty-block normalization fixture.
+  visibility: public
+  provider_gaps: {}
+
+null-block:
+  description: Provider-gap null-block normalization fixture.
+  visibility: public
+  provider_gaps: null
+
+member-null:
+  description: Provider-gap null-member normalization fixture.
+  visibility: public
+  provider_gaps:
+    fork_pr_contributor_approval: null
+
+explicit:
+  description: Provider-gap explicit override fixture.
+  visibility: public
+  provider_gaps:
+    fork_pr_contributor_approval: first_time_contributors
+
+archived:
+  description: Provider-gap archived repository fixture.
+  visibility: public
+  archived: true
+  provider_gaps:
+    fork_pr_contributor_approval: all_external_contributors

@@ -73,8 +73,13 @@ terraform test
 | G37 | Compat baseline + gap + populated preview | ✅ | `validation.tftest.hcl::compatibility_mode_tolerates_capability_gap` |
 | G38 | Compat baseline + no gap + empty preview | ✅ | `security.tftest.hcl::compatibility_mode_no_gap_plans_clean_with_empty_preview` |
 | G39 | Capability gap across multiple visibilities (counting) | ✅ | `security.tftest.hcl::strict_mode_reports_gaps_across_multiple_visibilities` |
+| G40 | Unknown nested `provider_gaps.*` key | ✅ | `provider_gaps.tftest.hcl::rejects_unknown_provider_gap_key` |
+| G41 | Repository provider-gap enum | ✅ | `provider_gaps.tftest.hcl::rejects_repository_policy_outside_enum` |
+| G42 | Private repository provider-gap declaration | ✅ | `provider_gaps.tftest.hcl::rejects_private_repository_declaration` |
+| G43 | Personal owner organization-level provider-gap declaration | ✅ | `provider_gaps.tftest.hcl::rejects_personal_organization_policy` |
+| G44 | Organization provider-gap enum | ✅ | `provider_gaps.tftest.hcl::rejects_organization_policy_outside_enum` |
 
-**Global validation coverage: 39 / 39 ≈ 100%.**
+**Global validation coverage: 44 / 44 ≈ 100%.**
 
 ## Variable validation blocks
 
@@ -122,6 +127,8 @@ terraform test
 | N15 | Repo default rulesets applied when no YAML rules | ✅ | `normalization.tftest.hcl::good_minimal_produces_expected_resource_counts` |
 | N16 | **All ~28 repo_setting_defaults** (default value sweep) | ✅ | `normalization.tftest.hcl::good_minimal_carries_expected_defaults` |
 | N17 | `allowed_actions_config` defaults (verified_allowed fail-closed, github_owned, patterns) | ✅ | `normalization.tftest.hcl::actions_config_omitted_fields_take_failclosed_defaults` + explicit-true / explicit-false runs |
+| N18 | Repository provider-gap absent/empty/null/null-member collapse and explicit projection | ✅ | `provider_gaps.tftest.hcl::repository_gap_normalization_has_exact_projection` |
+| N19 | Organization optional provider-gap members materialize as exact null keys | ✅ | `provider_gaps.tftest.hcl::organization_optional_members_materialize_as_null` |
 | CO1 | Org mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::org_mode_uses_global_codeowners_default` |
 | CO2 | Per-repo `codeowners` overrides the global default | ✅ | `normalization.tftest.hcl::org_mode_per_repo_codeowners_overrides_global_default` |
 | CO3 | Personal mode honors a non-empty global `repo_default_codeowners` | ✅ | `normalization.tftest.hcl::personal_mode_uses_global_codeowners_default` |
@@ -129,7 +136,7 @@ terraform test
 | CO5 | Org mode with no default retains the ruleset precondition guard | ✅ | `preconditions.tftest.hcl::rejects_org_mode_codeowners_required_but_missing` |
 | CO6 | Empty personal default synthesizes; whitespace org default triggers the guard | ✅ | `normalization.tftest.hcl::personal_mode_empty_codeowners_default_synthesizes` + `normalization.tftest.hcl::org_mode_whitespace_codeowners_default_is_rejected` |
 
-**Normalization coverage: 23 / 23 ≈ 100%.**
+**Normalization coverage: 25 / 25 ≈ 100%.**
 
 ## Inventory completeness
 
@@ -186,23 +193,32 @@ terraform test
 
 | Layer | Covered | Total | % |
 |---|---|---|---|
-| Global validation | 39 | 39 | 100% |
+| Global validation | 44 | 44 | 100% |
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
-| Normalization paths | 23 | 23 | 100% |
+| Normalization paths | 25 | 25 | 100% |
 | Inventory completeness | 12 | 12 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **101** | **101** | **100%** |
+| **Overall** | **108** | **108** | **100%** |
 
 ## Test run count and artifacts
 
 | Metric | Count |
 |---|---|
-| `.tftest.hcl` files | 8 |
-| `run` blocks total | 97 |
-| Fixture directories | 37 |
-| Assertions total | 123 |
+| `.tftest.hcl` files | 9 |
+| `run` blocks total | 105 |
+| Fixture directories | 41 |
+| Assertions total | 127 |
+
+Recount command (run from the repository root):
+
+```bash
+find terraform/tests -maxdepth 1 -name '*.tftest.hcl' -type f | wc -l
+rg -g '*.tftest.hcl' '^run "' terraform/tests | wc -l
+find terraform/tests/fixtures -mindepth 1 -maxdepth 1 -type d | wc -l
+rg -g '*.tftest.hcl' '^  assert \{' terraform/tests | wc -l
+```
 
 ## Explicitly NOT tested (by design)
 
@@ -233,6 +249,6 @@ No Codecov. No LCOV. No equivalent for Terraform code. This matrix is the tool. 
 | `terraform-google-modules/network` | ~20 | Fixture-driven + integration |
 | Gruntwork modules | Few `tftest`, heavy terratest | Integration-first |
 | OpenTofu's own test suite | ~50 | Feature coverage |
-| **This framework** | **97** | **Fixture + coverage-matrix driven** |
+| **This framework** | **105** | **Fixture + coverage-matrix driven** |
 
 We're at the upper end of community practice without crossing into overengineering.
