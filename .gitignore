@@ -257,3 +257,4 @@
 !/docs/decision-records/org/0005-keep-github-control-planes-namespace-local.md
 !/.github/workflows/org-adr-sync.yaml
 !/.github/workflows/org-adr-auto-sync.yaml
+!/.github/workflows/template-drift.yaml
