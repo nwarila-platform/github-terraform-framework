@@ -23,7 +23,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "reusable-terraform-deploy.yaml"
+WORKFLOW = Path(
+    os.environ.get(
+        "DETECTOR_WORKFLOW",
+        ROOT / ".github" / "workflows" / "reusable-terraform-deploy.yaml",
+    )
+)
 VERSIONS = ROOT / "terraform" / "versions.tf"
 RESOURCES = ROOT / "terraform" / "resources.tf"
 WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
@@ -141,6 +146,16 @@ def inventory_data_row(name: str, names: list[str]) -> dict:
         "name": name,
         "index": INVENTORY_OWNER,
         "values": {"names": names},
+    }
+
+
+def boundary_inventory_checks() -> dict[str, list[object]]:
+    malformed = inventory_check()
+    malformed["address"] = "check.inventory_complete"
+    return {
+        "failing": [inventory_check("fail")],
+        "missing": [],
+        "malformed": [malformed],
     }
 
 
@@ -477,7 +492,8 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         existing: str = "",
         prior_resources: list[object] | None = None,
         is_organization: bool = True,
-    ) -> tuple[list[dict], str, str, int]:
+        detector_mode: bool = True,
+    ) -> tuple[list[dict], str, str, int, list[list[str]]]:
         owner_names = owner_names if owner_names is not None else ["declared-public"]
         public_names = public_names if public_names is not None else ["declared-public"]
         if prior_resources is None:
@@ -509,12 +525,14 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
             curl_stub = tmp / "curl_stub.py"
             curl_stub.write_text(
                 """
-import os, sys
+import json, os, sys
 from pathlib import Path
 with open(os.environ["CURL_LOG"], "a", encoding="utf-8") as fh:
-    fh.write("GET\\n")
+    fh.write(json.dumps(sys.argv[1:]) + "\\n")
 if os.environ["CURL_MODE"] == "fail":
     raise SystemExit(22)
+if os.environ["CURL_MODE"] == "timeout":
+    raise SystemExit(28)
 args = sys.argv[1:]
 output = args[args.index("--output") + 1]
 Path(output).write_text(os.environ["METADATA_BODY"], encoding="utf-8")
@@ -551,7 +569,7 @@ if args[:2] == ["issue", "list"] and os.environ.get("EXISTING_ISSUE"):
                     "GH_TOKEN": "actions-issue-token-sentinel-7f3",
                     "REPO": "example/caller",
                     "RUN_URL": "https://example.invalid/actions/runs/1",
-                    "DETECTOR_MODE": "true",
+                    "DETECTOR_MODE": "true" if detector_mode else "false",
                     "TF_VAR_github_is_organization": (
                         "true" if is_organization else "false"
                     ),
@@ -572,18 +590,25 @@ curl() {{ "{sys.executable}" "$CURL_STUB" "$@"; }}
             )
             self.assertEqual(summary_proc.returncode, 0, "summary projection failed")
 
-            reporter_wrapped = f"""
+            reporter_stdout = ""
+            reporter_stderr = ""
+            if detector_mode:
+                reporter_wrapped = f"""
 gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
 {self.reporter}
 """
-            reporter_proc = subprocess.run(
-                ["bash", "-c", reporter_wrapped],
-                cwd=tmp,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(reporter_proc.returncode, 0, "reporter projection failed")
+                reporter_proc = subprocess.run(
+                    ["bash", "-c", reporter_wrapped],
+                    cwd=tmp,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    reporter_proc.returncode, 0, "reporter projection failed"
+                )
+                reporter_stdout = reporter_proc.stdout
+                reporter_stderr = reporter_proc.stderr
 
             records = (
                 [json.loads(line) for line in gh_log.read_text().splitlines()]
@@ -597,14 +622,17 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 (
                     summary_proc.stdout,
                     summary_proc.stderr,
-                    reporter_proc.stdout,
-                    reporter_proc.stderr,
+                    reporter_stdout,
+                    reporter_stderr,
                     summary,
                     issue_bodies,
                 )
             )
-            curl_calls = len(curl_log.read_text().splitlines()) if curl_log.exists() else 0
-            return records, summary, surfaces, curl_calls
+            curl_argv = (
+                [json.loads(line) for line in curl_log.read_text().splitlines()]
+                if curl_log.exists() else []
+            )
+            return records, summary, surfaces, len(curl_argv), curl_argv
 
     @staticmethod
     def command(records: list[dict], *prefix: str) -> dict:
@@ -698,7 +726,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
     def test_inventory_only_public_name_reaches_both_safe_projections(self):
         public_name = "public-inventory-canary"
         message = f"Live repositories not declared in the inventory:\n{public_name}"
-        records, summary, surfaces, curl_calls = self.run_inventory_projections(
+        records, summary, surfaces, curl_calls, _ = self.run_inventory_projections(
             checks=[inventory_check("fail", message)],
             owner_names=["declared-public", public_name],
             public_names=["declared-public", public_name],
@@ -730,7 +758,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
 
     def test_terraform_only_and_mixed_findings_reach_both_projections(self):
         changed = change('github_repository.repo["changed"]', ["update"])
-        records, summary, _, _ = self.run_inventory_projections(changes=[changed])
+        records, summary, _, _, _ = self.run_inventory_projections(changes=[changed])
         issue = self.command(records, "issue", "create")
         self.assertIn('github_repository.repo["changed"]', summary)
         self.assertIn(DRIFT, issue["body"])
@@ -739,7 +767,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
 
         public_name = "public-inventory-canary"
         message = f"Live repositories not declared in the inventory:\n{public_name}"
-        records, summary, _, _ = self.run_inventory_projections(
+        records, summary, _, _, _ = self.run_inventory_projections(
             checks=[inventory_check("fail", message)],
             owner_names=["declared-public", public_name],
             public_names=["declared-public", public_name],
@@ -752,7 +780,9 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         self.assertIn(INVENTORY_UNDECLARED, issue["body"])
 
     def test_inventory_recovery_closes_only_when_both_planes_are_empty(self):
-        records, summary, _, curl_calls = self.run_inventory_projections(existing="42")
+        records, summary, _, curl_calls, _ = self.run_inventory_projections(
+            existing="42"
+        )
         self.assertEqual(curl_calls, 1)
         self.assertIn("No actionable Terraform resource changes", summary)
         self.assertIn("No actionable inventory findings", summary)
@@ -771,7 +801,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
             "Live repositories not declared in the inventory:\n"
             "<1 non-public repositories redacted>"
         )
-        records, summary, surfaces, curl_calls = self.run_inventory_projections(
+        records, summary, surfaces, curl_calls, _ = self.run_inventory_projections(
             checks=[inventory_check("fail", message)],
             owner_names=["declared-public", NON_PUBLIC_SENTINEL],
             public_names=["declared-public"],
@@ -800,7 +830,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         }
         for label, kwargs in cases.items():
             with self.subTest(case=label):
-                records, summary, surfaces, curl_calls = self.run_inventory_projections(
+                records, summary, surfaces, curl_calls, _ = self.run_inventory_projections(
                     **kwargs
                 )
                 issue = self.command(records, "issue", "create")
@@ -864,7 +894,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         }
         for label, rows in cases.items():
             with self.subTest(case=label):
-                records, summary, surfaces, _ = self.run_inventory_projections(
+                records, summary, surfaces, _, _ = self.run_inventory_projections(
                     prior_resources=rows,
                     metadata={"public_repos": 1, "total_private_repos": 1},
                 )
@@ -880,7 +910,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                     self.assertNotIn(secret, surfaces)
 
     def test_metadata_count_mismatch_and_search_ceiling_fail_closed(self):
-        records, summary, _, _ = self.run_inventory_projections(
+        records, summary, _, _, _ = self.run_inventory_projections(
             metadata={"public_repos": 1, "total_private_repos": 1}
         )
         issue = self.command(records, "issue", "create")
@@ -888,7 +918,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
 
         names_999 = [f"repo-{number:04d}" for number in range(999)]
-        records, summary, surfaces, _ = self.run_inventory_projections(
+        records, summary, surfaces, _, _ = self.run_inventory_projections(
             owner_names=names_999,
             public_names=names_999,
             metadata={"public_repos": 999, "total_private_repos": 0},
@@ -898,7 +928,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         self.assertNotIn(INVENTORY_UNVERIFIED, surfaces)
 
         names_1000 = [f"repo-{number:04d}" for number in range(1000)]
-        records, summary, _, _ = self.run_inventory_projections(
+        records, summary, _, _, _ = self.run_inventory_projections(
             owner_names=names_1000,
             public_names=names_1000,
             metadata={"public_repos": 1000, "total_private_repos": 0},
@@ -939,7 +969,7 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
         }
         for label, checks in cases.items():
             with self.subTest(case=label):
-                records, summary, surfaces, _ = self.run_inventory_projections(
+                records, summary, surfaces, _, _ = self.run_inventory_projections(
                     checks=checks
                 )
                 issue = self.command(records, "issue", "create")
@@ -948,9 +978,104 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
                 self.assertNotIn(RAW_PLAN_SENTINEL, surfaces)
                 self.assertNotIn(TOKEN_SENTINEL, surfaces)
 
+    def test_non_detector_modes_do_not_classify_inventory(self):
+        modes = {
+            "plan-only": {"plan_only": True, "apply": False, "drift_issue": False},
+            "push": {"plan_only": False, "apply": False, "drift_issue": False},
+            "apply": {"plan_only": False, "apply": True, "drift_issue": False},
+        }
+        reporter_predicate = step_if("Report drift as an issue")
+        for mode, inputs in modes.items():
+            reporter_runs = eval_predicate(
+                reporter_predicate,
+                github_is_organization=True,
+                **inputs,
+            )
+            self.assertFalse(reporter_runs)
+            for check_case, checks in boundary_inventory_checks().items():
+                with self.subTest(mode=mode, check=check_case):
+                    records, summary, surfaces, curl_calls, curl_argv = (
+                        self.run_inventory_projections(
+                            checks=checks,
+                            is_organization=True,
+                            detector_mode=reporter_runs,
+                        )
+                    )
+                    self.assertEqual(records, [])
+                    self.assertEqual(curl_calls, 0)
+                    self.assertEqual(curl_argv, [])
+                    self.assertNotIn("INVENTORY", summary)
+                    self.assertNotIn("inventory", summary.lower())
+                    self.assertNotIn("INVENTORY", surfaces)
+
+    def test_personal_detector_empty_projection_ignores_inventory_check(self):
+        for check_case, checks in boundary_inventory_checks().items():
+            with self.subTest(check=check_case):
+                records, summary, surfaces, curl_calls, curl_argv = (
+                    self.run_inventory_projections(
+                        checks=checks,
+                        is_organization=False,
+                    )
+                )
+                self.assertEqual(
+                    [record["args"][:2] for record in records],
+                    [["issue", "list"]],
+                )
+                self.assertEqual(curl_calls, 0)
+                self.assertEqual(curl_argv, [])
+                self.assertNotIn("INVENTORY", summary)
+                self.assertNotIn("inventory", summary.lower())
+                self.assertNotIn("INVENTORY", surfaces)
+                self.assertFalse(
+                    any(
+                        record["args"][:2] in (["issue", "create"], ["issue", "edit"])
+                        for record in records
+                    )
+                )
+
+    def test_personal_detector_terraform_only_projection_ignores_inventory_check(self):
+        changed = change('github_repository.repo["changed"]', ["update"])
+        for check_case, checks in boundary_inventory_checks().items():
+            with self.subTest(check=check_case):
+                records, summary, surfaces, curl_calls, curl_argv = (
+                    self.run_inventory_projections(
+                        checks=checks,
+                        changes=[changed],
+                        is_organization=False,
+                    )
+                )
+                issue = self.command(records, "issue", "create")
+                self.assertEqual(curl_calls, 0)
+                self.assertEqual(curl_argv, [])
+                self.assertIn('github_repository.repo["changed"]', summary)
+                self.assertIn(DRIFT, issue["body"])
+                self.assertNotIn("INVENTORY", summary)
+                self.assertNotIn("inventory", summary.lower())
+                self.assertNotIn("INVENTORY", issue["body"])
+                self.assertNotIn("inventory", issue["body"].lower())
+                self.assertNotIn("INVENTORY", surfaces)
+
+    def test_metadata_timeout_has_exact_argv_and_reaches_both_projections(self):
+        records, summary, surfaces, curl_calls, curl_argv = (
+            self.run_inventory_projections(curl_mode="timeout")
+        )
+        issue = self.command(records, "issue", "create")
+        self.assertEqual(curl_calls, 1)
+        self.assertEqual(len(curl_argv), 1)
+        args = curl_argv[0]
+        self.assertEqual(args.count("--max-time"), 1)
+        max_time_index = args.index("--max-time")
+        self.assertLess(max_time_index + 1, len(args))
+        self.assertEqual(args[max_time_index + 1], "30")
+        self.assertIn(INVENTORY_UNVERIFIED, summary)
+        self.assertIn(INVENTORY_UNVERIFIED, issue["body"])
+        self.assertNotIn(TOKEN_SENTINEL, surfaces)
+        self.assertNotIn(RAW_PLAN_SENTINEL, surfaces)
+
     def test_inventory_metadata_request_is_one_read_only_get_with_terraform_pat(self):
         summary = self.summary
         self.assertIn("curl --request GET", summary)
+        self.assertIn("--max-time 30", summary)
         self.assertIn("Authorization: Bearer ${TF_VAR_github_token}", summary)
         self.assertIn("https://api.github.com/orgs/${TF_VAR_github_owner}", summary)
         self.assertNotIn("GH_TOKEN=", summary)
@@ -959,13 +1084,13 @@ gh() {{ "{sys.executable}" "$GH_STUB" "$@"; }}
             step_block("Report drift as an issue"),
         )
 
-        records, rendered, surfaces, curl_calls = self.run_inventory_projections(
+        records, rendered, surfaces, curl_calls, _ = self.run_inventory_projections(
             prior_resources=[],
             is_organization=False,
         )
         self.assertEqual(curl_calls, 0)
         self.assertEqual([record["args"][:2] for record in records], [["issue", "list"]])
-        self.assertIn("No actionable inventory findings", rendered)
+        self.assertNotIn("inventory", rendered.lower())
         self.assertNotIn(INVENTORY_UNVERIFIED, surfaces)
 
     def test_refused_delete_still_reaches_reporter_in_detector_mode(self):

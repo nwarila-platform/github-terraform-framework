@@ -145,8 +145,10 @@ terraform test
 | I08 | Missing/duplicate data rows, duplicate names, and public-not-subset results are enumeration-unverified | ✅ | `test_detector_mode.py::test_invalid_search_rows_fail_closed_without_rendering_names` |
 | I09 | Metadata GET/body/integer/count failures are enumeration-unverified | ✅ | `test_detector_mode.py` metadata failure and count mismatch fixtures |
 | I10 | 999 repositories remain supported; 1,000 is enumeration-unverified | ✅ | `test_detector_mode.py::test_metadata_count_mismatch_and_search_ceiling_fail_closed` |
+| I11 | Inventory classification is confined to organization detector mode | ✅ | `test_detector_mode.py` v5 non-detector and personal-detector mode-boundary fixtures |
+| I12 | Metadata GET receives one `--max-time 30`; timeout is enumeration-unverified and reaches the issue writer | ✅ | `test_detector_mode.py::test_metadata_timeout_has_exact_argv_and_reaches_both_projections` |
 
-**Inventory completeness coverage: 10 / 10 ≈ 100%.**
+**Inventory completeness coverage: 12 / 12 ≈ 100%.**
 
 ## `for_each` filter regressions
 
@@ -188,10 +190,10 @@ terraform test
 | Variable validation | 3 | 3 | 100% |
 | Per-resource preconditions | 8 | 8 | 100% |
 | Normalization paths | 23 | 23 | 100% |
-| Inventory completeness | 10 | 10 | 100% |
+| Inventory completeness | 12 | 12 | 100% |
 | for_each filter regressions | 10 | 10 | 100% |
 | Edge cases | 6 | 6 | 100% |
-| **Overall** | **99** | **99** | **100%** |
+| **Overall** | **101** | **101** | **100%** |
 
 ## Test run count and artifacts
 

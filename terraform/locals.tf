@@ -1156,9 +1156,11 @@ check "inventory_complete" {
 #%     as lifecycle.precondition blocks on the relevant resources, so Terraform's error       %#
 #%     messages point at specific resource addresses.                                          %#
 #%                                                                                             %#
-#%   One intentional advisory-mode exception: check.security_baseline_preview emits a         %#
-#%     warning listing capability gaps when security_baseline_mode='compatibility'. It is     %#
-#%     a preview for the strict-mode flip, not an enforcement point. See plan Finding 6.      %#
+#%   Two intentional advisory-mode exceptions, both warnings rather than enforcement:         %#
+#%     check.security_baseline_preview lists capability gaps when                             %#
+#%     security_baseline_mode='compatibility' (a preview for the strict-mode flip; see plan   %#
+#%     Finding 6), and check.inventory_complete lists live repositories missing from the      %#
+#%     inventory (public names only; non-public repositories are counted, never named).       %#
 #% ========================================================================================== %#
 
 check "security_baseline_preview" {

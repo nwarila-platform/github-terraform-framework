@@ -717,7 +717,7 @@ jobs:
           : > inventory-metadata.json
           if [ "${DETECTOR_MODE}" = "true" ] && [ "${TF_VAR_github_is_organization}" = "true" ]; then
             printf 'failed\n' > inventory-metadata.status
-            if curl --request GET --fail --silent --show-error \
+            if curl --request GET --fail --silent --show-error --max-time 30 \
               --header "Accept: application/vnd.github+json" \
               --header "Authorization: Bearer ${TF_VAR_github_token}" \
               --header "X-GitHub-Api-Version: 2022-11-28" \
@@ -884,19 +884,23 @@ jobs:
               print()
               print("_Values omitted by design (public repo). Run a real-state plan out-of-band for full detail._")
 
-          check_status, check_messages = inventory_check(plan)
-          enumeration_status = inventory_enumeration(plan)
-          if check_status == "fail":
-              print()
-              print("INVENTORY / undeclared-live:")
-              for message in check_messages:
-                  print(message)
-          if check_status == "unverified" or enumeration_status == "unverified":
-              print()
-              print(f"INVENTORY / enumeration-unverified: {INVENTORY_UNVERIFIED}")
-          if check_status == "pass" and enumeration_status != "unverified":
-              print()
-              print("No actionable inventory findings.")
+          if (
+              os.environ.get("DETECTOR_MODE") == "true"
+              and os.environ.get("TF_VAR_github_is_organization") == "true"
+          ):
+              check_status, check_messages = inventory_check(plan)
+              enumeration_status = inventory_enumeration(plan)
+              if check_status == "fail":
+                  print()
+                  print("INVENTORY / undeclared-live:")
+                  for message in check_messages:
+                      print(message)
+              if check_status == "unverified" or enumeration_status == "unverified":
+                  print()
+                  print(f"INVENTORY / enumeration-unverified: {INVENTORY_UNVERIFIED}")
+              if check_status == "pass" and enumeration_status != "unverified":
+                  print()
+                  print("No actionable inventory findings.")
           PY
 
       - name: Report drift as an issue
@@ -1059,12 +1063,16 @@ jobs:
               classes[classification] += 1
               rows.append((rc.get("address", "?"), classification, act))
 
-          check_status, check_messages = inventory_check(plan)
-          enumeration_status = inventory_enumeration(plan)
-          inventory_undeclared = check_status == "fail"
-          inventory_unverified = (
-              check_status == "unverified" or enumeration_status == "unverified"
-          )
+          check_messages = []
+          inventory_undeclared = False
+          inventory_unverified = False
+          if os.environ.get("TF_VAR_github_is_organization") == "true":
+              check_status, check_messages = inventory_check(plan)
+              enumeration_status = inventory_enumeration(plan)
+              inventory_undeclared = check_status == "fail"
+              inventory_unverified = (
+                  check_status == "unverified" or enumeration_status == "unverified"
+              )
 
           if rows or inventory_undeclared or inventory_unverified:
               if classes["DRIFT / live-mismatch"]:
