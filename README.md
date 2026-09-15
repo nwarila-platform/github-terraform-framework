@@ -16,7 +16,7 @@ If `required_version` changes, the commit message on the framework side must fla
 
 ## Repository YAML schema
 
-Repository definitions live in `terraform/repos/public/*.yml` and `terraform/repos/private/*.yml`. Allowed top-level keys are declared in `local.allowed_repo_keys` ([terraform/30-locals.tf](terraform/30-locals.tf)); unknown keys (including at nested levels) fail plan via `terraform_data.framework_validation`.
+Repository definitions live in `terraform/repos/public/*.yml` and `terraform/repos/private/*.yml`. Allowed top-level keys are declared in `local.allowed_repo_keys` ([terraform/locals.tf](terraform/locals.tf)); unknown keys (including at nested levels) fail plan via `terraform_data.framework_validation`.
 
 ### Constraints
 

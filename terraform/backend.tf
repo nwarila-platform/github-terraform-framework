@@ -1,5 +1,5 @@
 #% ========================================================================================== %#
-#% = File: 00-providers.tf                                      | Category: Providers (00-09) %#
+#% = File: backend.tf                                                                         %#
 #% ----- [ Description ] -------------------------------------------------------------------- %#
 #% Backend declaration. Terraform required_version and required_providers live in versions.tf
 #% per the golden template contract.

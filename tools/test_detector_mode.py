@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-terraform-deploy.yaml"
 VERSIONS = ROOT / "terraform" / "versions.tf"
-RESOURCES = ROOT / "terraform" / "41-resources-github.tf"
+RESOURCES = ROOT / "terraform" / "resources.tf"
 WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
 
 TITLE = "Terraform drift or state-binding gap detected"

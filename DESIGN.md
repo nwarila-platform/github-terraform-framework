@@ -1046,25 +1046,28 @@ This section covers security controls for the Terraform framework itself — the
 
 | | |
 |---|---|
-| **Governance** | [OWASP: Sensitive Data Exposure](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/), [OpenSSF Scorecard: Binary-Artifacts](https://github.com/ossf/scorecard/blob/main/docs/checks.md#binary-artifacts) |
+| **Governance** | [OWASP A02:2021: Cryptographic Failures](https://top10.owasp.org/2021/A02_2021-Cryptographic_Failures/), [OpenSSF Scorecard: Binary-Artifacts](https://github.com/ossf/scorecard/blob/main/docs/checks.md#binary-artifacts) |
 
-This repository uses a **deny-all** `.gitignore` strategy: everything is ignored by default (`**`), and only explicitly allowlisted files are tracked. This prevents accidental commits of sensitive files (`.env`, state files, credentials) or build artifacts.
+This repository uses a deny-all `.gitignore`: `**` ignores paths by default and negated rules
+allowlist intended deliverables. The rule helps prevent accidental inclusion by ordinary Git add
+operations; it is not a substitute for review and can be bypassed explicitly with Git's force
+option.
 
-**Critical allowlist rules**:
+Terraform configuration deliverables are allowlisted by exact path. The framework repository
+allowlists only the `.gitkeep` markers beneath `terraform/repos/public` and
+`terraform/repos/private`; the reusable deploy workflow overlays public and private definitions
+from the caller and may add private definitions fetched from S3 in its temporary workspace. No
+`terraform.tfvars` or `terraform.auto.tfvars` allowlist exists in this repository. The workflow may
+copy the caller's `org.auto.tfvars` into the assembled workspace, but that generated workspace file
+is not a committed framework deliverable.
 
-- `!/terraform/repos/*.yml` and `!/terraform/repos/*.yaml` — Repository definition files (the framework's primary input).
-- `!/terraform/*.tf` — Terraform configuration files.
-- `!/DESIGN.md` — This governing design document.
-- Standard repo files (`LICENSE`, `README.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`).
+Local state, plan files, `.env`, conventional tfvars files, and `.terraform/` are not allowlisted.
+Terraform state and plan files can contain resource attributes, output values, and other sensitive
+data, so they must be handled as sensitive artifacts. Do not infer that a particular provider
+credential is stored in state merely because its input variable is marked sensitive.
 
-**Explicitly excluded** (not in allowlist):
-
-- `.env` — Contains the GitHub Personal Access Token. Must never be committed.
-- `terraform.tfstate` / `terraform.tfstate.backup` — State files contain sensitive data in plaintext (API tokens, resource metadata).
-- `terraform.tfvars` — Intentionally excluded to prevent accidental credential commits. Sensitive variables must be provided via environment variables or `.env`. Only `terraform.auto.tfvars` is allowlisted for non-sensitive configuration overrides.
-- `.terraform/` — Provider binaries and plugin cache.
-
-**Rationale**: The deny-all approach inverts the typical `.gitignore` model. Instead of trying to enumerate everything that *shouldn't* be committed (a losing game), it enumerates only what *should* be committed. This is the more secure default — new files are ignored unless explicitly approved.
+**Rationale**: The deny-all approach requires a deliberate allowlist change for a new deliverable
+instead of relying on an ever-growing list of exclusions.
 
 ### 15.2 Credential Management
 
@@ -1072,14 +1075,18 @@ This repository uses a **deny-all** `.gitignore` strategy: everything is ignored
 |---|---|
 | **Governance** | [OWASP A07:2021: Identification and Authentication Failures](https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/), [NIST SP 800-53 IA-5: Authenticator Management](https://csf.tools/reference/nist-sp-800-53/r5/ia/ia-5/) |
 
-The framework requires a GitHub Personal Access Token (PAT) for API authentication. Credential handling follows these principles:
+The Terraform configuration supports token authentication and GitHub App authentication. It marks
+both `github_token` and `github_app_auth` as sensitive and validates that the selected mode has
+exactly one corresponding credential source.
 
-1. **`github_token` is marked `sensitive = true`** in the variable definition, preventing it from appearing in `terraform plan` output or state file diffs.
-2. **Credentials are provided via environment variables** (sourced from `.env`), not via `terraform.tfvars` or command-line arguments.
-3. **`.env` is excluded from version control** by the deny-all `.gitignore` strategy — it is never allowlisted.
-4. **`terraform.tfvars` is excluded from version control** to prevent the natural instinct of adding sensitive values to the conventional variable file.
+The current reusable workflow requires its `gh_token` Actions secret and forwards it as
+`TF_VAR_github_token`; it does not source `.env`. Callers should supply credentials through the
+workflow's secret interface or another reviewed secret-delivery mechanism, never through committed
+configuration or variable files.
 
-**Recommendation**: Use environment variables (`TF_VAR_github_token`) or a secrets manager. Never store credentials in files that could be committed, even accidentally.
+Terraform's `sensitive = true` marking controls propagation and normal Terraform CLI/UI display. It
+does not encrypt the value, make the value ephemeral, or prevent a script or deliberately revealing
+command from logging it. State and plan artifacts must therefore be protected independently.
 
 ### 15.3 Terraform State Security
 
@@ -1087,25 +1094,52 @@ The framework requires a GitHub Personal Access Token (PAT) for API authenticati
 |---|---|
 | **Governance** | [NIST SP 800-53 SC-28: Protection of Information at Rest](https://csf.tools/reference/nist-sp-800-53/r5/sc/sc-28/) |
 
-Terraform state files contain the full configuration of all managed resources, including sensitive values like API tokens (post-apply). The current configuration uses **local state** (S3 backend is commented out in `00-providers.tf`).
+Terraform state records resource-instance attributes and root output values. In this framework,
+post-apply state includes the value of the `locals_debug` root output, which is marked sensitive.
+That marker redacts the `locals_debug` value in normal Terraform CLI/UI rendering but does not
+encrypt or omit it from state. The same two values are also exported through the non-sensitive
+`all_repositories` and `branch_rulesets` root outputs, so the marker on `locals_debug` does not
+prevent those duplicate outputs from being displayed. Do not claim that state contains the
+provider PAT merely because `github_token` is a sensitive input; this repository does not
+demonstrate that provider credentials are persisted in state.
 
-**Current state**: Local backend (file-based).
+**Canonical state**: Normal and `plan_only` workflow modes use the partial S3 backend declared in
+`backend.tf`. The backend fixes `encrypt = true`, `insecure = false`,
+`skip_credentials_validation = false`, `use_fips_endpoint = true`, and `use_lockfile = true`.
+The reusable workflow supplies bucket and region from Actions secrets. At `terraform init`, it
+derives the state-key owner component from lowercased `inputs.github_owner` and the repository-name
+component from the caller's `GITHUB_REPOSITORY`. These deployment-specific values are not hardcoded
+in `backend.tf`; the key convention itself is documented in this repository.
 
-**Security implications of local state**:
+`use_lockfile = true` enables S3-native locking. No DynamoDB locking argument is configured.
 
-- No encryption at rest (state file is plaintext on disk)
-- No state locking (risk of concurrent modification in CI/CD)
-- No access control beyond filesystem permissions
-- State contains the GitHub PAT in plaintext after `terraform apply`
+**Detector exception**: Detector mode reads a copied, ETag-stripped state snapshot through a
+generated `backend_override.tf` local backend. It deletes the unstripped copy after conversion and
+the always-run cleanup removes the framework workspace at job end. Detector mode does not write the
+canonical S3 state. Canonical deployment state is remote; the detector's temporary local copy must
+not be described as the canonical backend or omitted from the security account.
 
-**Recommended remediation**: Enable the S3 backend with:
+**Role selection visible in this repository**: The `plan_only` predicate and the detector-mode
+predicate require `aws_plan_role_arn` and do not fall back to `aws_role_arn`; all other input
+combinations select `aws_role_arn`. The workflow describes `plan_only` as the mode used for PR
+dry-runs, but it does not itself select a role based on the triggering GitHub event. Actual
+permissions and OIDC trust conditions are external to this repository.
 
-- Server-side encryption (SSE-S3 or SSE-KMS)
-- State locking via S3-native locking (DynamoDB is no longer required with S3's native lock support)
-- Bucket policy restricting access to the CI/CD IAM role
-- Versioning enabled for state rollback capability
+**Verified out of band**: An operational check recorded on 2026-09-11 reported that
+`GetBucketEncryption` returned default `SSEAlgorithm = AES256` (SSE-S3),
+`BucketKeyEnabled = true`, and `BlockedEncryptionTypes = [SSE-C]`. The bucket-key value is recorded
+as returned configuration, not as an additional SSE-S3 control; S3 Bucket Keys apply to SSE-KMS.
+The work order also reports out-of-band verification that the writer role's trust is restricted to
+the runner's main branch and that the planner role has no canonical state or lock write actions.
+Those live IAM controls are not established by repository contents.
 
-This is a known limitation documented for future remediation when the S3 backend configuration is finalized.
+**Residual items not verified here**:
+
+- Whether bucket versioning is enabled.
+- The scope and effective behavior of the live bucket policy.
+
+State and state-derived local files must continue to be treated as sensitive even when Terraform
+redacts their values in command output.
 
 ### 15.4 Terraform Output Security
 
@@ -1113,9 +1147,21 @@ This is a known limitation documented for future remediation when the S3 backend
 |---|---|
 | **Governance** | [NIST SP 800-53 SI-11: Error Handling](https://csf.tools/reference/nist-sp-800-53/r5/si/si-11/) |
 
-The `locals_debug` output is marked `sensitive = true` to prevent exposure of repository configurations, security settings, ruleset enforcement levels, and bypass actors in Terraform plan/apply output or CI/CD logs.
+The `locals_debug` root output is marked `sensitive = true`, which redacts that output's value in
+normal Terraform CLI/UI rendering. Its value contains `local.all_repositories` and
+`local.branch_rulesets`. The configuration separately exports those same values through the
+non-sensitive `all_repositories` and `branch_rulesets` root outputs so Terraform tests can inspect
+them. The sensitive marker on `locals_debug` is therefore not a confidentiality boundary for those
+data.
 
-**Recommendation**: Debug outputs should only exist during development. In production CI/CD pipelines, consider removing debug outputs entirely or gating them behind a variable flag. Terraform's `sensitive` marker prevents the values from appearing in CLI output but does **not** encrypt them in the state file.
+The reusable workflow redirects raw plan output to `/dev/null` and publishes a summary containing
+action counts and resource addresses, not attribute values. Its apply step runs `terraform apply`
+without suppressing normal Terraform output, so non-sensitive root outputs can appear in CI logs.
+State and plan artifacts remain sensitive regardless of display marking.
+
+Changing or removing the non-sensitive outputs would be a behavior-changing follow-up and is
+outside this filename-only PR. Until then, do not claim that the current output surface hides
+repository and ruleset data from normal CLI or CI output.
 
 ### 15.5 Provider Version Pinning
 

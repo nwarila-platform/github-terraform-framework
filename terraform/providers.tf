@@ -1,5 +1,5 @@
 #% =========================================================================================== %#
-#% = File: 01-providers-github.tf                                | Category: Providers (00-09) %#
+#% = File: providers.tf                                                                        %#
 #% ----- [ Description ] --------------------------------------------------------------------- %#
 #% GitHub provider configuration. Supports two authentication modes, selected by                %#
 #%   var.github_auth_mode:                                                                      %#
