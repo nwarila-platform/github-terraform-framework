@@ -129,6 +129,8 @@ terraform test
 | CO5 | Org mode with no default retains the ruleset precondition guard | ✅ | `preconditions.tftest.hcl::rejects_org_mode_codeowners_required_but_missing` |
 | CO6 | Empty personal default synthesizes; whitespace org default triggers the guard | ✅ | `normalization.tftest.hcl::personal_mode_empty_codeowners_default_synthesizes` + `normalization.tftest.hcl::org_mode_whitespace_codeowners_default_is_rejected` |
 
+Security normalization rows N04-N07 cover desired values used at repository creation; they do not claim post-create reconciliation. lifecycle.ignore_changes intentionally makes security_and_analysis and vulnerability_alerts drift non-actionable and the Terraform detector does not report it.
+
 **Normalization coverage: 23 / 23 ≈ 100%.**
 
 ## Inventory completeness
@@ -218,6 +220,7 @@ The following categories are intentionally excluded. Testing them is either dupl
 | Provider internal behavior | Not our code. HashiCorp's contract. |
 | Backend state locking | Backend is configured by the runner's `backend_override.tf`. |
 | `yamldecode` edge cases | Terraform builtin. Not our code. |
+| Post-create security drift | `security_and_analysis` and `vulnerability_alerts` are externally owned by GitHub's enforced organization security configuration and intentionally ignored by the resource lifecycle. |
 
 This exclusion list is a **deliberate overengineering guard**. Any PR that tries to add tests in these categories should be rejected unless it cites a specific observed regression.
 

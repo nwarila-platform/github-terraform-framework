@@ -510,19 +510,21 @@ These two controls protect against **different failure modes**. `prevent_destroy
 
 ## 7. Security & Analysis
 
-Secret scanning and push protection remain the secure default, but availability can vary by owner, plan, and provider API behavior. Repositories that cannot have a `security_and_analysis` feature PATCHed can set `unmanaged_security_features` in their repo YAML to emit Terraform `null` for that feature. This is intentionally different from setting `security_and_analysis.<feature>: false`, which manages the feature as disabled and still sends a provider PATCH. Per [OWASP A02:2021 (Cryptographic Failures)](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/), repositories handling credentials or configuration should use secret detection whenever the account can support it.
+The security baseline, capability matrix, explicit repository YAML, and fallback status build the desired create-time `security_and_analysis` payload. `unmanaged_security_features` omits selected features from that payload per repository, while `security_pin_exclude` is the fleet-wide counterpart. Neither omission control replaces the lifecycle ignore, and neither covers `vulnerability_alerts`.
+
+Terraform declares `security_and_analysis` and `vulnerability_alerts` when it creates a repository, but it intentionally ignores both after creation because GitHub's enforced organization security configuration owns them. Post-create drift in advanced security, code security, all four secret-scanning settings, and Dependabot alerts is therefore absent from Terraform plans and from the Terraform drift detector, and Terraform will not remediate it. Audit and remediation for those settings must occur at the organization-security-configuration layer.
+
+The create-time defaults are `vulnerability_alerts=false`; `advanced_security=false`; `code_security=false`; public secret scanning and push protection `true`; private/internal secret scanning and push protection `false`; AI detection `false`; and non-provider patterns `false`.
 
 ### 7.1 `vulnerability_alerts`
 
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `true` |
+| **Default** | `false` |
 | **Governance** | [GitHub Docs: Dependabot Alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts), [OpenSSF Scorecard: Vulnerabilities Check](https://github.com/ossf/scorecard/blob/main/docs/checks.md#vulnerabilities) |
 
-Enables Dependabot vulnerability alerts for known CVEs in dependencies.
-
-**Recommendation**: `true` for all repos. Dependabot alerts are free, automatic, and essential. Ignoring known vulnerabilities in dependencies is the #6 item on the [OWASP Top 10 (A06:2021)](https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/). Enabling them is one of the clearest low-friction security defaults a repository can have.
+`vulnerability_alerts` is declared false on create and ignored thereafter; the enforced organization security configuration owns existing repositories.
 
 ### 7.2 `dependabot_security_updates` — REMOVED 2026-07-19
 
@@ -530,7 +532,7 @@ Enables Dependabot vulnerability alerts for known CVEs in dependencies.
 |---|---|
 | **Status** | **Not managed per repository.** The `github_repository_dependabot_security_updates` resource was removed. |
 | **Why** | This organization uses **Renovate exclusively** for dependency updates. Dependabot is not part of the toolchain. |
-| **Enforcement that remains** | ORG-level `dependabot_alerts` / `dependabot_security_updates` under `org_settings.security_defaults_for_new_repositories`, both pinned `false`, so NEW repositories never receive Dependabot. Per-repo `vulnerability_alerts` is still managed `false`. |
+| **Enforcement that remains** | ORG-level `dependabot_alerts` / `dependabot_security_updates` under `org_settings.security_defaults_for_new_repositories`, both pinned `false`, so new repositories never receive Dependabot. `vulnerability_alerts` is declared false on create and organization-owned thereafter. |
 | **Governance** | [GitHub Docs: Dependabot Security Updates](https://docs.github.com/en/code-security/dependabot/dependabot-security-updates/about-dependabot-security-updates) |
 
 There was also a hard mechanical reason the per-repo resource could not stay: the
@@ -540,83 +542,80 @@ provider's Create with `enabled = false` issues
 whenever alerts are off. With alerts off org-wide, every repository on the defaults
 produced an unsatisfiable write that failed the apply.
 
-⚠️ **Known limitation:** because no instances exist for non-opted-in repositories,
-Terraform cannot detect out-of-band enablement on an existing repository. It enforces
-the configuration default and the future-repo org default, not continuous drift
-correction. If continuous "zero repos" enforcement is required, add an audit control
-outside this provider resource.
+Post-create auditing and remediation for Dependabot alerts and security updates occurs
+at the organization-security-configuration layer, outside this repository resource.
 
 ### 7.3 `advanced_security`
 
 | | |
 |---|---|
 | **Type** | `bool` or `null` |
-| **Default** | `null` (not set) |
+| **Default** | `false` |
 | **Governance** | [GitHub Docs: GHAS](https://docs.github.com/en/get-started/learning-about-github/about-github-advanced-security) |
 
 GitHub Advanced Security (GHAS) is a paid feature for private/internal repos. For public repos, all GHAS features are free and automatically available.
 
-**Recommendation**: `null` for all repos. Public repos get these features for free without enabling this flag. Private repos on a free plan cannot enable it. Setting it to `null` avoids provider errors while allowing the individual security features to be configured independently.
+The create-time baseline and capability defaults are false for every visibility. Explicit repository YAML can opt in, subject to validation and API availability.
 
 ### 7.4 `code_security`
 
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `true` (all visibilities) |
+| **Default** | `false` (all visibilities) |
 | **Governance** | [GitHub Docs: Code Security](https://docs.github.com/en/code-security) |
 
 Enables the code security overview and recommendations for the repository.
 
-**Recommendation**: `true` universally. Code security is a free feature that surfaces dependency vulnerabilities, code scanning alerts, and secret scanning results in a unified view. There is no cost or downside to enabling it.
+The create-time baseline and capability defaults are false for every visibility. Explicit repository YAML can opt in.
 
 ### 7.5 `secret_scanning`
 
 | | |
 |---|---|
 | **Type** | `bool` or unmanaged via `unmanaged_security_features` |
-| **Default** | `true` when baseline and capability permit; unmanaged when listed in repo YAML |
+| **Default** | `true` for public; `false` for private/internal |
 | **Governance** | [GitHub Docs: Secret Scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning), [OWASP A02:2021: Cryptographic Failures](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/) |
 
 Scans repository contents for known secret patterns (API keys, tokens, certificates).
 
-**Recommendation**: `true` wherever the owner/plan/API path supports it. If a repository is rejected when the provider PATCHes secret scanning, set `unmanaged_security_features: ["secret_scanning"]` for that repository so Terraform omits the feature instead of managing it as disabled. Leaked secrets in public repos are actively scraped by automated tools within seconds of exposure. Private repos are equally at risk from insider threats and compromised CI/CD pipelines.
+The default create-time payload enables this free feature for public repositories and leaves the paid private/internal feature disabled. `unmanaged_security_features` can omit it for one repository; `security_pin_exclude` can omit it fleet-wide.
 
 ### 7.6 `secret_scanning_push_protection`
 
 | | |
 |---|---|
 | **Type** | `bool` or unmanaged via `unmanaged_security_features` |
-| **Default** | `true` when baseline and capability permit; unmanaged when listed in repo YAML |
+| **Default** | `true` for public; `false` for private/internal |
 | **Governance** | [GitHub Docs: Push Protection](https://docs.github.com/en/code-security/secret-scanning/introduction/about-push-protection) |
 
 Blocks pushes that contain known secret patterns *before* they enter the repository.
 
-**Recommendation**: `true` wherever the owner/plan/API path supports it. If push protection cannot be PATCHed for a repository, set `unmanaged_security_features: ["secret_scanning_push_protection"]` so Terraform omits it. This is the most critical secret scanning feature because it prevents secrets from ever being committed, rather than detecting them after the fact. Once a secret is in git history, it requires history rewriting to fully remove.
+The default create-time payload enables this free feature for public repositories and leaves the paid private/internal feature disabled. `unmanaged_security_features` can omit it for one repository; `security_pin_exclude` can omit it fleet-wide.
 
 ### 7.7 `secret_scanning_ai_detection`
 
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `true` (all visibilities) |
+| **Default** | `false` (all visibilities) |
 | **Governance** | [GitHub Docs: AI-Powered Secret Detection](https://docs.github.com/en/code-security/secret-scanning/using-advanced-secret-scanning-and-push-protection-features/generic-secret-detection/about-the-detection-of-generic-secrets-with-secret-scanning) |
 
 Uses AI/ML models to detect secrets that don't match known provider patterns (e.g., custom API keys, internal tokens, hardcoded passwords).
 
-**Recommendation**: `true` for all repos. AI detection catches the "long tail" of secrets that pattern-based scanning misses — custom API keys, internal tokens, hardcoded passwords, and other non-standard credential formats. This feature is now available for all repository visibilities.
+The create-time baseline and capability defaults are false for every visibility. Explicit repository YAML can opt in.
 
 ### 7.8 `secret_scanning_non_provider_patterns`
 
 | | |
 |---|---|
 | **Type** | `bool` |
-| **Default** | `true` (all visibilities) |
+| **Default** | `false` (all visibilities) |
 | **Governance** | [GitHub Docs: Non-Provider Patterns](https://docs.github.com/en/code-security/secret-scanning/introduction/supported-secret-scanning-patterns#supported-secrets) |
 
 Scans for secret patterns that aren't tied to specific service providers (e.g., generic private keys, HTTP basic auth credentials, connection strings).
 
-**Recommendation**: `true` for all repos. Non-provider patterns catch infrastructure secrets like database connection strings and private keys that provider-specific patterns would miss. Combined with AI detection, this provides comprehensive secret coverage across all repository visibilities.
+The create-time baseline and capability defaults are false for every visibility. Explicit repository YAML can opt in.
 
 ---
 
@@ -971,13 +970,36 @@ The `github_repository` resource includes:
 
 ```hcl
 lifecycle {
-  prevent_destroy = true
-  ignore_changes  = [auto_init, license_template]
+  # `auto_init` and `license_template` are create-time-only settings. The
+  # organization's enforced security configuration owns repository security and
+  # analysis plus Dependabot-alert enablement after creation. GitHub rejects
+  # repository-level writes to those enforced settings with HTTP 422.
+  #
+  # Provider v6.12.1 removes security_and_analysis from an update only when the
+  # entire block has no diff; a diff in any child rebuilds and resends the
+  # configured secret-scanning fields. Ignore the whole block so a sibling change
+  # cannot rewrite organization-owned fields. These settings are still declared
+  # when a repository is created.
+  ignore_changes = [
+    auto_init,
+    license_template,
+    security_and_analysis,
+    vulnerability_alerts,
+  ]
 }
 ```
 
-- **`prevent_destroy = true`**: Prevents accidental repository deletion via `terraform destroy`. Repositories contain irreplaceable git history — deletion should never be a side effect of infrastructure operations.
-- **`ignore_changes = [auto_init, license_template]`**: These are creation-time-only settings. After the initial `terraform apply`, changes to the README or LICENSE file within the repo should not cause Terraform drift. Without this, Terraform would try to "re-initialize" already-populated repos.
+`auto_init` and `license_template` are create-time-only settings. The whole `security_and_analysis` block and `vulnerability_alerts` are also ignored after creation because the enforced organization security configuration owns them.
+
+Terraform plans and the Terraform drift detector are intentionally blind to post-create drift in:
+
+- `security_and_analysis.advanced_security`;
+- `security_and_analysis.code_security`;
+- `security_and_analysis.secret_scanning`;
+- `security_and_analysis.secret_scanning_push_protection`;
+- `security_and_analysis.secret_scanning_ai_detection`;
+- `security_and_analysis.secret_scanning_non_provider_patterns`; and
+- `vulnerability_alerts` (Dependabot alerts).
 
 ---
 

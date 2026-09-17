@@ -406,7 +406,7 @@ run "unmanaged_secret_features_collapse_security_to_null" {
 
   assert {
     condition     = output.all_repositories["unmanaged-security-repo"].security_and_analysis == null
-    error_message = "unmanaged secret-scanning features must force security_and_analysis to null so the provider omits the block"
+    error_message = "unmanaged secret-scanning features must force security_and_analysis to null in the desired create-time payload"
   }
 }
 
@@ -495,18 +495,18 @@ run "baseline_feature_enabled_when_capability_matches" {
       secret_scanning_ai_detection          = true
       secret_scanning_non_provider_patterns = true
     }
-    error_message = "repo without unmanaged_security_features must keep the existing managed security baseline"
+    error_message = "repo without unmanaged_security_features must keep the desired create-time security baseline"
   }
 }
 
 #endregion --- [ Baseline feature enabled when capability matches ] -------------------------- #
 
-run "disabled_fallback_manages_unspecified_features" {
+run "disabled_fallback_normalizes_unspecified_features_for_create" {
   command = plan
   variables { repo_yaml_path = "tests/fixtures/good-minimal" }
   assert {
     condition     = output.all_repositories["example-public-repo"].security_and_analysis != null && alltrue([for v in values(output.all_repositories["example-public-repo"].security_and_analysis) : v == false])
-    error_message = "disabled fallback must keep the block and manage every unspecified feature false"
+    error_message = "disabled fallback must keep the create-time block and normalize every unspecified feature to false"
   }
 }
 
@@ -575,12 +575,8 @@ run "invalid_pin_exclude_blocks_plan" {
   expect_failures = [terraform_data.framework_validation]
 }
 
-# Dependabot per-repo management was removed 2026-07-19 (Renovate is the only
-# dependency tool in this org), so the old
-# "explicit vulnerability_alerts=true coalesces dependabot updates to true"
-# behaviour no longer exists. The vulnerability_alerts half is still managed and
-# still worth asserting.
-run "explicit_vulnerability_alerts_opt_in_is_honoured" {
+# vulnerability_alerts remains part of create-time normalization but is organization-owned after creation
+run "explicit_vulnerability_alerts_opt_in_is_normalized_for_create" {
   command = plan
   variables { repo_yaml_path = "tests/fixtures/good-precedence" }
   assert {

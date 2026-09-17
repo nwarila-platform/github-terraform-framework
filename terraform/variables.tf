@@ -128,7 +128,7 @@ variable "repo_default_codeowners" {
 #region ------ [ Security Baseline ] --------------------------------------------------------- #
 
 variable "security_baseline_mode" {
-  description = "Controls how the framework reconciles repo security_and_analysis against github_security_capabilities. 'strict' fails plan when a required baseline setting exceeds declared capabilities. 'compatibility' emits an advisory preview via a check block and leaves unsupported settings unset. Default is 'compatibility' to allow non-breaking rollout; flip to 'strict' in the next tagged release."
+  description = "Controls validation of the desired create-time security_and_analysis payload against github_security_capabilities. 'strict' fails plan when a required baseline setting exceeds declared capabilities. 'compatibility' emits an advisory preview and leaves unsupported settings unset. Existing repositories ignore security_and_analysis drift because the enforced organization security configuration owns it."
   type        = string
   default     = "compatibility"
 
@@ -139,7 +139,7 @@ variable "security_baseline_mode" {
 }
 
 variable "github_security_capabilities" {
-  description = "Baseline-path capability matrix for GitHub security_and_analysis features, keyed by repository visibility. This gates only baseline enablement; an explicit repository YAML true intentionally bypasses a false capability as the sanctioned, PR-reviewed opt-in. Private/internal secret scanning and push protection are paid Secret Protection features."
+  description = "Capability matrix for the desired create-time security_and_analysis payload, keyed by repository visibility. It gates only baseline enablement; explicit repository YAML true intentionally bypasses a false capability as the sanctioned, PR-reviewed opt-in. Existing repositories ignore security_and_analysis drift."
 
   type = object({
     public = object({
@@ -201,7 +201,7 @@ variable "github_security_capabilities" {
 }
 
 variable "security_baseline" {
-  description = "Desired security_and_analysis baseline the framework should enforce when the owner's github_security_capabilities allow it, keyed by visibility. Fully-required matrix. A feature set to true means 'enable this wherever capabilities permit'; false means 'leave this feature unmanaged (do not enable)'. Explicit per-repo security_and_analysis YAML still overrides this baseline; per-repo unmanaged_security_features overrides both and emits null so the provider omits the feature."
+  description = "Desired create-time security_and_analysis payload, keyed by visibility. A true feature is enabled when capabilities permit; false uses security_default_status. Explicit repository YAML overrides the baseline, while unmanaged_security_features and security_pin_exclude emit null. Existing repositories ignore the entire security_and_analysis block because the enforced organization security configuration owns it."
 
   type = object({
     public = object({
@@ -261,7 +261,7 @@ variable "security_baseline" {
 }
 
 variable "security_default_status" {
-  description = "Fallback for security features not resolved by unmanaged/excluded, explicit YAML, or enabled baseline: 'disabled' manages them as false; 'unmanaged' emits null. Explicit YAML and unmanaged_security_features retain higher precedence."
+  description = "Fallback used while building the desired create-time security_and_analysis payload: 'disabled' emits false and 'unmanaged' emits null. Explicit YAML and unmanaged/excluded features retain higher precedence. Existing repositories ignore security_and_analysis drift."
   type        = string
   default     = "disabled"
 
@@ -272,7 +272,7 @@ variable "security_default_status" {
 }
 
 variable "security_pin_exclude" {
-  description = "Fleet-wide security feature names to omit (null), after per-repo unmanaged features and before explicit YAML. Unknown names are rejected by framework validation."
+  description = "Fleet-wide security feature names to omit (null) from the desired create-time security_and_analysis payload, after per-repository unmanaged features and before explicit YAML. Unknown names are rejected by framework validation."
   type        = list(string)
   default     = []
 }

@@ -43,13 +43,15 @@ Start at [`docs/README.md`](docs/README.md) for the index. The current `DESIGN.m
 
 ## Security baseline
 
-The framework models GitHub security features as a **visibility-keyed capability matrix** against a **desired baseline**:
+The framework models the desired create-time `security_and_analysis` payload as a **visibility-keyed capability matrix** against a **desired baseline**:
 
-- `var.github_security_capabilities` — what the owner's plan supports, declared per visibility (`public`, `private`, `internal`). Fully required: every feature for every visibility. Default matches GitHub Free.
-- `var.security_baseline` — what the framework wants enabled, per visibility. Default is an opinionated enterprise baseline.
-- `var.security_baseline_mode` — `strict` fails plan when the baseline demands a feature the capabilities don't support; `compatibility` emits an advisory preview via a `check` block and leaves unsupported features unmanaged. Default is `compatibility` for non-breaking rollout. Flip to `strict` in the next tagged release after remediating any preview warnings.
+- `var.github_security_capabilities` — what the owner's plan supports in the create-time payload, declared per visibility (`public`, `private`, `internal`). Fully required: every feature for every visibility. Default matches GitHub Free.
+- `var.security_baseline` — desired create-time values, per visibility. The default enables only free public secret scanning and push protection.
+- `var.security_baseline_mode` — validates the desired create-time payload: `strict` fails plan when the baseline demands a feature the capabilities don't support; `compatibility` emits an advisory preview and leaves unsupported features unset.
 
-A repository YAML may set `unmanaged_security_features` to force individual `security_and_analysis` features to Terraform `null`, even when the baseline or an explicit `security_and_analysis` value would otherwise manage them. This is different from `security_and_analysis.<feature>: false`: `false` manages the disabled state and still PATCHes the provider, while `unmanaged_security_features` omits the feature from the provider payload.
+A repository YAML may set `unmanaged_security_features` to force individual features to Terraform `null` in that repository's create-time payload. `var.security_pin_exclude` is the fleet-wide counterpart. A `false` value emits the disabled state in the create-time payload, while either omission control removes the feature from it. Neither control replaces the lifecycle ignore, and neither covers `vulnerability_alerts`.
+
+Terraform declares `security_and_analysis` and `vulnerability_alerts` when it creates a repository, but it intentionally ignores both after creation because GitHub's enforced organization security configuration owns them. Post-create drift in advanced security, code security, all four secret-scanning settings, and Dependabot alerts is therefore absent from Terraform plans and from the Terraform drift detector, and Terraform will not remediate it. Audit and remediation for those settings must occur at the organization-security-configuration layer.
 
 ```yaml
 example-private-repo:
