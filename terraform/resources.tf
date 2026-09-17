@@ -217,13 +217,22 @@ resource "github_repository" "repo" {
     # .github/workflows/reusable-terraform-deploy.yaml. That guard can read the
     # plan's before-state, which a lifecycle meta-argument cannot.
 
-    # `auto_init` and `license_template` are CREATE-time only; ignoring
-    # them prevents spurious diff after the initial create. `allow_forking`
-    # defaults to true for public, false for internal and organization-owned
-    # private, and null for personal-account private repositories; YAML may
-    # override these defaults subject to validation. It is NOT ignored —
-    # drift in YAML-managed values should surface as a real diff.
-    ignore_changes = [auto_init, license_template]
+    # `auto_init` and `license_template` are create-time-only settings. The
+    # organization's enforced security configuration owns repository security and
+    # analysis plus Dependabot-alert enablement after creation. GitHub rejects
+    # repository-level writes to those enforced settings with HTTP 422.
+    #
+    # Provider v6.12.1 removes security_and_analysis from an update only when the
+    # entire block has no diff; a diff in any child rebuilds and resends the
+    # configured secret-scanning fields. Ignore the whole block so a sibling change
+    # cannot rewrite organization-owned fields. These settings are still declared
+    # when a repository is created.
+    ignore_changes = [
+      auto_init,
+      license_template,
+      security_and_analysis,
+      vulnerability_alerts,
+    ]
 
     precondition {
       condition     = contains(["public", "private", "internal"], each.value.visibility)
