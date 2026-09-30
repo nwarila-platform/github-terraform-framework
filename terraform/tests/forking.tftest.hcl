@@ -24,7 +24,7 @@ run "F1_public_omitted_defaults_true" {
   }
 }
 
-run "F2_org_private_omitted_defaults_false" {
+run "F2_org_private_omitted_defaults_null" {
   command = plan
   variables {
     repo_yaml_path         = "tests/fixtures/good-forking-defaults"
@@ -32,12 +32,12 @@ run "F2_org_private_omitted_defaults_false" {
     repo_default_rules     = []
   }
   assert {
-    condition     = output.all_repositories["private-default-repo"].allow_forking == false
-    error_message = "F2: organization-owned private omitted allow_forking must default to false"
+    condition     = output.all_repositories["private-default-repo"].allow_forking == null
+    error_message = "F2: organization-owned private omitted allow_forking must default to null"
   }
 }
 
-run "F3_internal_omitted_defaults_false" {
+run "F3_internal_omitted_defaults_null" {
   command = plan
   variables {
     repo_yaml_path         = "tests/fixtures/good-forking-defaults"
@@ -45,8 +45,8 @@ run "F3_internal_omitted_defaults_false" {
     repo_default_rules     = []
   }
   assert {
-    condition     = output.all_repositories["internal-default-repo"].allow_forking == false
-    error_message = "F3: internal omitted allow_forking must default to false"
+    condition     = output.all_repositories["internal-default-repo"].allow_forking == null
+    error_message = "F3: internal omitted allow_forking must default to null"
   }
 }
 

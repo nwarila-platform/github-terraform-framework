@@ -400,15 +400,14 @@ Shows an "Update branch" button on PRs when they're behind the base branch.
 
 ### 4.10 `allow_forking`
 
-| | |
-|---|---|
-| **Type** | `bool` |
-| **Default** | `false` |
-| **Governance** | [Open Source Licensing Principles](https://opensource.org/osd) |
+| Repository | Omitted YAML default |
+|---|---:|
+| Public | `true` |
+| Internal and private | `null` (API field omitted) |
 
 Controls whether the repository can be forked (for private/internal org repos - public repos are always forkable per GitHub's terms of service).
 
-**Recommendation**: Default this to `false` conceptually, but do not enforce it from the shared framework resource. Public repos are forkable by definition, and personal-account repositories cannot reliably update this field through the same API path as organization repositories. If an owner needs strict forking control, handle it in an owner-specific layer.
+When YAML omits `allow_forking`, a public repository defaults to `true`; an internal or private repository defaults to `null`, so the API field is omitted. Explicit YAML values pass through, except public `false` is rejected. On an organization-owned private or internal repository, an explicit value requires the organization to allow private forking first. A managed `org_settings` defaults that organization setting to `false`; with it forbidden, a public→private transition carrying the field was rejected with 422 (run 36578849679). Explicit values on personal-account private repositories pass through, but API acceptance remains unverified and needs a live one-repository test.
 
 ### 4.11 `web_commit_signoff_required`
 

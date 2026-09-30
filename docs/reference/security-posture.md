@@ -12,16 +12,14 @@ Provider issue #3501 can cause `code_security` not to read back. Mock-provider t
 
 ## Repository forking
 
-The framework manages `allow_forking` according to repository visibility and ownership:
+The framework manages `allow_forking` according to repository visibility:
 
 | Repository | Omitted YAML default |
 |---|---:|
 | Public | `true` |
-| Internal | `false` |
-| Organization-owned private | `false` |
-| Personal-account private | `null` (API field omitted) |
+| Internal and private | `null` (API field omitted) |
 
-An explicit YAML value overrides these defaults, except that explicit `allow_forking: false` is rejected for public repositories. Forking of public repositories is not restrictable on github.com; attempting to manage it as false can produce a 422 response or a permanent diff when the API reads it back as true. Explicit values on personal-account private repositories pass through, but API acceptance remains unverified and needs a live one-repository test.
+When YAML omits `allow_forking`, a public repository defaults to `true` and an internal or private one to `null`, which omits the field from the request; on an organization-owned repository the organization's own setting then governs, and on a personal-account repository nothing is sent. Explicit YAML values pass through, except public `false` is rejected. On an organization-owned private or internal repository an explicit value requires the organization to allow private forking first; a managed `org_settings` defaults that to `false`, and with it forbidden a public→private transition carrying the field was rejected with 422 (run 36578849679). Forking of public repositories is not restrictable on github.com; attempting to manage it as false can produce a permanent diff when the API reads it back as true. Explicit values on personal-account private repositories pass through, but API acceptance remains unverified and needs a live one-repository test.
 
 The material fork risk is workflow execution at the runner layer. Self-hosted dynamic ephemeral runners are deliberately used on all repositories, including public repositories, with these controls in priority order:
 
