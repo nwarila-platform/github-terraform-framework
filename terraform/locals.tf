@@ -38,11 +38,13 @@ locals {
   # outside this set indicates a typo or schema drift and is rejected by
   # terraform_data.framework_validation.
   #
-  # NOTE: `allow_forking` defaults by visibility and ownership: true for
-  # public, false for internal and organization-owned private, and null
-  # for personal-account private repositories so the provider omits the
-  # field. Explicit YAML values pass through, except public false is
-  # rejected because public forking is not restrictable on github.com.
+  # NOTE: `allow_forking` defaults by visibility: true for public and
+  # null for internal and private repositories. When the key is omitted
+  # for a non-public repository, the module sends nothing. Explicit YAML
+  # values are sent, except public false is rejected because public
+  # forking is not restrictable on github.com. On an organization-owned
+  # private or internal repository, an explicit value requires the
+  # organization to allow private forking first.
   # UNVERIFIED: does the GitHub API accept an explicit allow_forking on personal-account private repos? Needs a live 1-repo test.
   allowed_repo_keys = toset([
     "description", "homepage_url", "topics",
@@ -504,19 +506,16 @@ locals {
         local.repo_setting_defaults.allow_auto_merge
       )
 
-      # Default policy (visibility- and ownership-aware): explicit YAML
-      # wins; otherwise public is true, internal and organization-owned
-      # private are false, and personal-account private is null so the
-      # provider omits the field. Public false is rejected upstream.
+      # Default policy (visibility-aware): explicit YAML is sent; otherwise
+      # public is true, while internal and private are null so the module
+      # sends nothing. Public false is rejected upstream. On an
+      # organization-owned private or internal repository, an explicit
+      # value requires the organization to allow private forking first.
       # UNVERIFIED: does the GitHub API accept an explicit allow_forking on personal-account private repos? Needs a live 1-repo test.
       allow_forking = (
         try(repository.allow_forking, null) != null
         ? repository.allow_forking
-        : (
-          coalesce(try(repository.visibility, null), "private") == "public" ? true :
-          coalesce(try(repository.visibility, null), "private") == "internal" ? false :
-          var.github_is_organization ? false : null
-        )
+        : coalesce(try(repository.visibility, null), "private") == "public" ? true : null
       )
 
       allow_merge_commit = coalesce(

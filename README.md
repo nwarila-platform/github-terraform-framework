@@ -21,7 +21,7 @@ Repository definitions live in `terraform/repos/public/*.yml` and `terraform/rep
 ### Constraints
 
 - **Seed content is required for branch management.** If a repo sets `auto_init: false`, it must also configure either a `template` or a `fork` source. Otherwise `github_branch_default` will fail at apply time with a provider-level error because there is no default branch to rename. The framework does not pre-validate this — the provider error is adequate.
-- **`allow_forking` is not supported.** The key is rejected at the unknown-top-level-key stage. The setting is org-only and not currently managed by a provider-backed resource in this framework; accepting it would be a silent no-op, which is worse than rejecting it. Revisit if the framework grows explicit org-level management.
+- **`allow_forking` is accepted, defaulted by visibility, and passed to `github_repository`.** When omitted on a private or internal repository, the module sends nothing. An explicit value is sent, and on an organization-owned private or internal repository it requires the organization to allow private forking first.
 - **`require_code_owner_review` requires an effective CODEOWNERS source.** A per-repo `codeowners: |` value overrides the global `var.repo_default_codeowners`, which is honored in both organization and personal-account modes. Org mode disables automatic bare-org synthesis because a bare organization is not a valid GitHub code owner; configure the global default with a valid user or team, or use a per-repo override. Personal-account mode synthesizes `* @<github_owner>` when neither source is set. The CODEOWNERS file is provisioned on the default branch, and rulesets depend on it landing first.
 
 ## Authentication modes
@@ -78,7 +78,7 @@ terraform test
 **What the suite covers:**
 
 - **Positive case:** `good-minimal` — asserts `output.validation_errors` is empty for a clean YAML fixture.
-- **Unknown key rejection:** top-level typo (`descripton`), nested typo (`actions.enable`), and the intentionally-rejected `allow_forking`.
+- **Unknown key rejection:** top-level typo (`descripton`) and nested typo (`actions.enable`).
 - **Duplicate repository keys:** same repo name declared in both `public/` and `private/` must fail plan instead of silently collapsing.
 - **Unsupported push rulesets:** a push-target rule on a public repo (or any visibility when `github_supports_push_rulesets=false`) must fail plan.
 - **Auth config:** token mode with no token, app mode with no app_auth, and both sources set simultaneously must all fail.
