@@ -475,15 +475,12 @@ variable "repo_default_rules" {
   #     from bypass_actors) override in their YAML.
   #
   # Why bypass_mode = "always" on both rulesets:
-  #   GitHub rulesets bypass is all-or-nothing per ruleset per actor.
-  #   There is no "bypass update but not pull_request within the same
-  #   ruleset." To allow emergency direct pushes, the owner must bypass
-  #   Branch Safety (which blocks update). But a direct push also hits
-  #   the PR Gate (which requires a pull_request). If the owner doesn't
-  #   bypass the PR Gate, emergency pushes are blocked. Putting the
-  #   owner in bypass on both rulesets is the only way to enable
-  #   emergency direct pushes while keeping the PR gate enforced for
-  #   external contributors.
+  #   - Pull Request Gate bypass permits emergency direct pushes; without it,
+  #     the pull_request rule rejects changes not associated with a PR.
+  #   - Branch Safety bypass permits emergency operations blocked by its
+  #     retained rules, such as forced history repair or unsigned remediation.
+  #   - Eligible normal PR merges do not require either bypass. update remains
+  #     false so an eligible squash merge can advance the default branch.
   default = [
     {
       name        = "Branch Safety"
@@ -503,7 +500,7 @@ variable "repo_default_rules" {
 
       rules = {
         creation                = true
-        update                  = true
+        update                  = false
         deletion                = true
         non_fast_forward        = true
         required_linear_history = true
