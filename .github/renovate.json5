@@ -2,14 +2,7 @@
   // Schema for editor validation. Update only when intentionally adopting a new schema.
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
 
-  // Renovate config for nwarila-platform/github-terraform-framework.
-  //
-  // Per nwarila-platform/.github ADR-0004 (Use Renovate for Dependency
-  // Updates with Per-Template Baselines), this framework repo extends only
-  // its type-template: NWarila/terraform-framework-template.
-  //
-  // Anything below the `extends` array is a repo-specific override. Keep
-  // it minimal: stack-wide concerns belong in the type-template, not here.
-
-  "extends": ["github>NWarila/terraform-framework-template"]
+  // Per ADR-0004, this repository extends only its type template.
+  // Keep any repo-specific overrides below `extends` minimal.
+  "extends": ["github>NWarila/terraform-framework-template//.github/renovate.json5"]
 }
